@@ -36,7 +36,7 @@ async def cmd_help(message: Message):
     await message.answer(
         "/sources - list sources\n"
         "/source_add <link or @username> - add source\n"
-        "/source_remove <id> - remove source\n"
+        "/source_remove <chat_id> - remove source\n"
         "/watches - list watches\n"
         "/watch_add <name> | <include,terms> | <exclude,terms> | <min-max>\n"
         "/watch_add_fts <name> <fts_query> - add raw FTS watch\n"

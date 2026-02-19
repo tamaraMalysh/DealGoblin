@@ -7,7 +7,7 @@ import aiosqlite
 
 def _rows_to_dicts(cursor_description, rows):
     cols = [d[0] for d in cursor_description]
-    return [dict(zip(cols, row)) for row in rows]
+    return [dict(zip(cols, row, strict=True)) for row in rows]
 
 
 class SourceRepo:
@@ -69,11 +69,9 @@ class MessageRepo:
             return _rows_to_dicts(cur.description, await cur.fetchall())
 
     async def get_by_rowid(self, rowid: int) -> dict | None:
-        async with self._db.execute(
-            "SELECT * FROM messages WHERE rowid = ?", (rowid,)
-        ) as cur:
+        async with self._db.execute("SELECT * FROM messages WHERE rowid = ?", (rowid,)) as cur:
             row = await cur.fetchone()
-            return dict(zip([d[0] for d in cur.description], row)) if row else None
+            return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
 
 
 class WatchRepo:
@@ -100,9 +98,7 @@ class WatchRepo:
             return _rows_to_dicts(cur.description, await cur.fetchall())
 
     async def list_enabled(self) -> list[dict]:
-        async with self._db.execute(
-            "SELECT * FROM watches WHERE enabled = 1 ORDER BY id"
-        ) as cur:
+        async with self._db.execute("SELECT * FROM watches WHERE enabled = 1 ORDER BY id") as cur:
             return _rows_to_dicts(cur.description, await cur.fetchall())
 
     async def set_enabled(self, watch_id: int, enabled: bool):
@@ -117,11 +113,9 @@ class WatchRepo:
         await self._db.commit()
 
     async def get(self, watch_id: int) -> dict | None:
-        async with self._db.execute(
-            "SELECT * FROM watches WHERE id = ?", (watch_id,)
-        ) as cur:
+        async with self._db.execute("SELECT * FROM watches WHERE id = ?", (watch_id,)) as cur:
             row = await cur.fetchone()
-            return dict(zip([d[0] for d in cur.description], row)) if row else None
+            return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
 
 
 class MatchEventRepo:

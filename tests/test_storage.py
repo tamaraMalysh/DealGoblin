@@ -17,9 +17,7 @@ async def db(db_path):
 
 
 async def test_schema_tables_exist(db):
-    async with db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    ) as cur:
+    async with db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name") as cur:
         tables = [row[0] for row in await cur.fetchall()]
     assert "sources" in tables
     assert "messages" in tables
@@ -33,17 +31,13 @@ async def test_fts_sync_on_insert(db):
         "INSERT INTO messages (chat_id, message_id, text_norm) VALUES (1, 1, 'vintage lamp')"
     )
     await db.commit()
-    async with db.execute(
-        "SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'lamp'"
-    ) as cur:
+    async with db.execute("SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'lamp'") as cur:
         rows = await cur.fetchall()
     assert len(rows) == 1
 
 
 async def test_message_dedupe(db):
-    await db.execute(
-        "INSERT INTO messages (chat_id, message_id, text_norm) VALUES (1, 1, 'first')"
-    )
+    await db.execute("INSERT INTO messages (chat_id, message_id, text_norm) VALUES (1, 1, 'first')")
     await db.commit()
     with pytest.raises(Exception):
         await db.execute(
@@ -53,9 +47,7 @@ async def test_message_dedupe(db):
 
 async def test_match_event_dedupe(db):
     await db.execute("INSERT INTO watches (name, fts_query) VALUES ('w', 'test')")
-    await db.execute(
-        "INSERT INTO messages (chat_id, message_id, text_norm) VALUES (1, 1, 'test')"
-    )
+    await db.execute("INSERT INTO messages (chat_id, message_id, text_norm) VALUES (1, 1, 'test')")
     await db.commit()
     await db.execute("INSERT INTO match_events (watch_id, message_rowid) VALUES (1, 1)")
     await db.commit()

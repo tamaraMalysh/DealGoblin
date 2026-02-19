@@ -30,11 +30,13 @@ CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
 END;
 
 CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, text_norm) VALUES('delete', old.rowid, old.text_norm);
+    INSERT INTO messages_fts(messages_fts, rowid, text_norm)
+        VALUES('delete', old.rowid, old.text_norm);
 END;
 
 CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-    INSERT INTO messages_fts(messages_fts, rowid, text_norm) VALUES('delete', old.rowid, old.text_norm);
+    INSERT INTO messages_fts(messages_fts, rowid, text_norm)
+        VALUES('delete', old.rowid, old.text_norm);
     INSERT INTO messages_fts(rowid, text_norm) VALUES (new.rowid, new.text_norm);
 END;
 

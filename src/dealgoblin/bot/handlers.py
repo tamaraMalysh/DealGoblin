@@ -27,9 +27,7 @@ def _get_repos(message: Message):
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
-    await message.answer(
-        "DealGoblin - Flea market finder.\n" "Use /help to see available commands."
-    )
+    await message.answer("DealGoblin - Flea market finder.\nUse /help to see available commands.")
 
 
 @router.message(Command("help"))

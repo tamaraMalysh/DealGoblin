@@ -3,7 +3,7 @@ import pytest
 from dealgoblin.match.fts_query import build_fts_query
 from dealgoblin.match.matcher import evaluate_message
 from dealgoblin.storage.db import init_db
-from dealgoblin.storage.repo import MatchEventRepo, MessageRepo, WatchRepo
+from dealgoblin.storage.repo import MessageRepo, WatchRepo
 
 
 def test_simple_include():

@@ -37,6 +37,7 @@ class Collector:
         chat_id = event.chat_id
         allowed = await self._source_repo.get_all_chat_ids()
         if chat_id not in allowed:
+            logger.debug("Skipping message from chat_id=%s (allowed=%s)", chat_id, allowed)
             return
         msg = event.message
         if not msg.text:

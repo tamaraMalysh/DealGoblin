@@ -7,6 +7,7 @@ from aiogram import Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from telethon import TelegramClient
+from telethon import utils as tl_utils
 
 from dealgoblin.bot.helpers import (
     format_search_results,
@@ -76,7 +77,7 @@ async def cmd_source_add(message: Message, db: aiosqlite.Connection, telethon: T
     username = parsed.lstrip("@")
     try:
         entity = await telethon.get_entity(username)
-        chat_id = entity.id
+        chat_id = tl_utils.get_peer_id(entity)
         title = getattr(entity, "title", username)
     except Exception as e:
         await message.answer(f"Could not resolve {parsed}: {e}")

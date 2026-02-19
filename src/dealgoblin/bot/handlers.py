@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 
+import aiosqlite
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
+from telethon import TelegramClient
 
 from dealgoblin.bot.helpers import (
     format_search_results,
@@ -19,9 +21,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-def _get_repos(message: Message):
-    """Retrieve repos from bot context data."""
-    db = message.bot["db"]
+def _get_repos(db: aiosqlite.Connection):
     return SourceRepo(db), MessageRepo(db), WatchRepo(db)
 
 
@@ -48,23 +48,23 @@ async def cmd_help(message: Message):
 
 
 @router.message(Command("status"))
-async def cmd_status(message: Message):
-    source_repo, _, _ = _get_repos(message)
+async def cmd_status(message: Message, db: aiosqlite.Connection):
+    source_repo, _, _ = _get_repos(db)
     sources = await source_repo.list_all()
-    async with message.bot["db"].execute("SELECT COUNT(*) FROM messages") as cur:
+    async with db.execute("SELECT COUNT(*) FROM messages") as cur:
         msg_count = (await cur.fetchone())[0]
     await message.answer(f"Sources: {len(sources)}\nMessages indexed: {msg_count}")
 
 
 @router.message(Command("sources"))
-async def cmd_sources(message: Message):
-    source_repo, _, _ = _get_repos(message)
+async def cmd_sources(message: Message, db: aiosqlite.Connection):
+    source_repo, _, _ = _get_repos(db)
     sources = await source_repo.list_all()
     await message.answer(format_source_list(sources))
 
 
 @router.message(Command("source_add"))
-async def cmd_source_add(message: Message):
+async def cmd_source_add(message: Message, db: aiosqlite.Connection, telethon: TelegramClient):
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.answer("Usage: /source_add <t.me link or @username>")
@@ -75,20 +75,19 @@ async def cmd_source_add(message: Message):
         return
     username = parsed.lstrip("@")
     try:
-        client = message.bot["telethon"]
-        entity = await client.get_entity(username)
+        entity = await telethon.get_entity(username)
         chat_id = entity.id
         title = getattr(entity, "title", username)
     except Exception as e:
         await message.answer(f"Could not resolve {parsed}: {e}")
         return
-    source_repo, _, _ = _get_repos(message)
+    source_repo, _, _ = _get_repos(db)
     await source_repo.add(chat_id=chat_id, username=username, title=title)
     await message.answer(f"Added source: {title} ({chat_id})")
 
 
 @router.message(Command("source_remove"))
-async def cmd_source_remove(message: Message):
+async def cmd_source_remove(message: Message, db: aiosqlite.Connection):
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.answer("Usage: /source_remove <chat_id>")
@@ -98,20 +97,20 @@ async def cmd_source_remove(message: Message):
     except ValueError:
         await message.answer("Provide a numeric chat_id.")
         return
-    source_repo, _, _ = _get_repos(message)
+    source_repo, _, _ = _get_repos(db)
     await source_repo.remove(chat_id=chat_id)
     await message.answer(f"Removed source {chat_id}.")
 
 
 @router.message(Command("watches"))
-async def cmd_watches(message: Message):
-    _, _, watch_repo = _get_repos(message)
+async def cmd_watches(message: Message, db: aiosqlite.Connection):
+    _, _, watch_repo = _get_repos(db)
     watches = await watch_repo.list_all()
     await message.answer(format_watch_list(watches))
 
 
 @router.message(Command("watch_add"))
-async def cmd_watch_add(message: Message):
+async def cmd_watch_add(message: Message, db: aiosqlite.Connection):
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.answer(
@@ -132,61 +131,61 @@ async def cmd_watch_add(message: Message):
     if not fts:
         await message.answer("Include at least one search term.")
         return
-    _, _, watch_repo = _get_repos(message)
+    _, _, watch_repo = _get_repos(db)
     wid = await watch_repo.add(name=name, fts_query=fts, price_min=price_min, price_max=price_max)
     await message.answer(f"Watch #{wid} '{name}' created: {fts}")
 
 
 @router.message(Command("watch_add_fts"))
-async def cmd_watch_add_fts(message: Message):
+async def cmd_watch_add_fts(message: Message, db: aiosqlite.Connection):
     args = (message.text or "").split(maxsplit=2)
     if len(args) < 3:
         await message.answer("Usage: /watch_add_fts <name> <fts_query>")
         return
-    _, _, watch_repo = _get_repos(message)
+    _, _, watch_repo = _get_repos(db)
     wid = await watch_repo.add(name=args[1], fts_query=args[2])
     await message.answer(f"Watch #{wid} '{args[1]}' created: {args[2]}")
 
 
 @router.message(Command("watch_pause"))
-async def cmd_watch_pause(message: Message):
+async def cmd_watch_pause(message: Message, db: aiosqlite.Connection):
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.answer("Usage: /watch_pause <id>")
         return
-    _, _, watch_repo = _get_repos(message)
+    _, _, watch_repo = _get_repos(db)
     await watch_repo.set_enabled(int(args[1]), False)
     await message.answer(f"Watch #{args[1]} paused.")
 
 
 @router.message(Command("watch_resume"))
-async def cmd_watch_resume(message: Message):
+async def cmd_watch_resume(message: Message, db: aiosqlite.Connection):
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.answer("Usage: /watch_resume <id>")
         return
-    _, _, watch_repo = _get_repos(message)
+    _, _, watch_repo = _get_repos(db)
     await watch_repo.set_enabled(int(args[1]), True)
     await message.answer(f"Watch #{args[1]} resumed.")
 
 
 @router.message(Command("watch_remove"))
-async def cmd_watch_remove(message: Message):
+async def cmd_watch_remove(message: Message, db: aiosqlite.Connection):
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.answer("Usage: /watch_remove <id>")
         return
-    _, _, watch_repo = _get_repos(message)
+    _, _, watch_repo = _get_repos(db)
     await watch_repo.remove(int(args[1]))
     await message.answer(f"Watch #{args[1]} removed.")
 
 
 @router.message(Command("search"))
-async def cmd_search(message: Message):
+async def cmd_search(message: Message, db: aiosqlite.Connection):
     args = (message.text or "").split(maxsplit=1)
     if len(args) < 2:
         await message.answer("Usage: /search <query>")
         return
-    _, msg_repo, _ = _get_repos(message)
+    _, msg_repo, _ = _get_repos(db)
     results = await msg_repo.search_fts(args[1], limit=10)
     await message.answer(format_search_results(results))

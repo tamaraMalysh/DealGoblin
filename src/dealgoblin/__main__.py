@@ -36,9 +36,9 @@ async def run():
     dp = Dispatcher()
     dp.include_router(router)
 
-    # Share state via bot context
-    bot["db"] = db
-    bot["telethon"] = telethon
+    # Share state via dispatcher workflow data (injected as handler kwargs)
+    dp["db"] = db
+    dp["telethon"] = telethon
 
     # Matcher callback
     async def on_ingest(rowid: int, text_norm: str):

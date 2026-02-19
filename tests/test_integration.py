@@ -52,6 +52,8 @@ async def test_search_returns_ranked_results(db):
     results = await msg_repo.search_fts("lamp", limit=10)
     assert len(results) == 2
     # Higher relevance first (bm25 returns negative, so more negative = better)
+    # The document with more occurrences of "lamp" should come first.
+    assert [row["text_raw"] for row in results] == ["lamp lamp lamp", "lamp"]
 
 
 async def test_no_duplicate_alerts_across_evaluations(db):

@@ -40,8 +40,18 @@ CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
     INSERT INTO messages_fts(rowid, text_norm) VALUES (new.rowid, new.text_norm);
 END;
 
+CREATE TABLE IF NOT EXISTS bot_users (
+    id INTEGER PRIMARY KEY,
+    tg_user_id INTEGER,
+    chat_id INTEGER UNIQUE NOT NULL,
+    city TEXT NOT NULL DEFAULT 'Тбилиси',
+    subscription TEXT NOT NULL DEFAULT 'FREE',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS watches (
     id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES bot_users(id),
     name TEXT NOT NULL,
     fts_query TEXT NOT NULL,
     price_min REAL,

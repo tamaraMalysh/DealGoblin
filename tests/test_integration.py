@@ -2,7 +2,7 @@ import pytest
 
 from dealgoblin.match.matcher import evaluate_message
 from dealgoblin.storage.db import init_db
-from dealgoblin.storage.repo import MatchEventRepo, MessageRepo, WatchRepo
+from dealgoblin.storage.repo import BotUserRepo, MatchEventRepo, MessageRepo, WatchRepo
 
 
 @pytest.fixture
@@ -17,8 +17,11 @@ async def test_ingest_match_notify_pipeline(db):
     msg_repo = MessageRepo(db)
     watch_repo = WatchRepo(db)
     me_repo = MatchEventRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=1000, tg_user_id=1000)
 
-    await watch_repo.add(name="lamps", fts_query="lamp OR lantern", price_max=2000)
+    await watch_repo.add(
+        user_id=user["id"], name="lamps", fts_query="lamp OR lantern", price_max=2000
+    )
 
     rowid = await msg_repo.insert(
         chat_id=100,
@@ -59,8 +62,9 @@ async def test_search_returns_ranked_results(db):
 async def test_no_duplicate_alerts_across_evaluations(db):
     msg_repo = MessageRepo(db)
     watch_repo = WatchRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=2000, tg_user_id=2000)
 
-    await watch_repo.add(name="w", fts_query="lamp")
+    await watch_repo.add(user_id=user["id"], name="w", fts_query="lamp")
     rowid = await msg_repo.insert(chat_id=1, message_id=1, text_raw="lamp", text_norm="lamp")
 
     events1 = await evaluate_message(db, rowid, "lamp")

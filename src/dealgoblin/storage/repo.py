@@ -34,6 +34,43 @@ class SourceRepo:
             return [row[0] for row in await cur.fetchall()]
 
 
+class BotUserRepo:
+    def __init__(self, db: aiosqlite.Connection):
+        self._db = db
+
+    async def ensure(
+        self,
+        chat_id: int,
+        tg_user_id: int | None = None,
+        city: str = "Тбилиси",
+        subscription: str = "FREE",
+    ) -> dict:
+        await self._db.execute(
+            "INSERT OR IGNORE INTO bot_users (tg_user_id, chat_id, city, subscription) "
+            "VALUES (?, ?, ?, ?)",
+            (tg_user_id, chat_id, city, subscription),
+        )
+        if tg_user_id is not None:
+            await self._db.execute(
+                "UPDATE bot_users SET tg_user_id = COALESCE(tg_user_id, ?) WHERE chat_id = ?",
+                (tg_user_id, chat_id),
+            )
+        await self._db.commit()
+        async with self._db.execute("SELECT * FROM bot_users WHERE chat_id = ?", (chat_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(zip([d[0] for d in cur.description], row, strict=True))
+
+    async def get_by_chat_id(self, chat_id: int) -> dict | None:
+        async with self._db.execute("SELECT * FROM bot_users WHERE chat_id = ?", (chat_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
+
+    async def get_by_id(self, user_id: int) -> dict | None:
+        async with self._db.execute("SELECT * FROM bot_users WHERE id = ?", (user_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
+
+
 class MessageRepo:
     def __init__(self, db: aiosqlite.Connection):
         self._db = db
@@ -73,6 +110,25 @@ class MessageRepo:
             row = await cur.fetchone()
             return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
 
+    async def count_all(self) -> int:
+        async with self._db.execute("SELECT COUNT(*) FROM messages") as cur:
+            row = await cur.fetchone()
+            return int(row[0])
+
+    async def count_last_24h(self) -> int:
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM messages WHERE ingested_at >= datetime('now', '-1 day')"
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row[0])
+
+    async def list_recent(self, limit: int, offset: int = 0) -> list[dict]:
+        async with self._db.execute(
+            "SELECT * FROM messages ORDER BY ingested_at DESC, rowid DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cur:
+            return _rows_to_dicts(cur.description, await cur.fetchall())
+
 
 class WatchRepo:
     def __init__(self, db: aiosqlite.Connection):
@@ -80,14 +136,16 @@ class WatchRepo:
 
     async def add(
         self,
+        user_id: int,
         name: str,
         fts_query: str,
         price_min: float | None = None,
         price_max: float | None = None,
     ) -> int:
         async with self._db.execute(
-            "INSERT INTO watches (name, fts_query, price_min, price_max) VALUES (?, ?, ?, ?)",
-            (name, fts_query, price_min, price_max),
+            "INSERT INTO watches (user_id, name, fts_query, price_min, price_max) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, name, fts_query, price_min, price_max),
         ) as cur:
             wid = cur.lastrowid
         await self._db.commit()
@@ -96,6 +154,21 @@ class WatchRepo:
     async def list_all(self) -> list[dict]:
         async with self._db.execute("SELECT * FROM watches ORDER BY id") as cur:
             return _rows_to_dicts(cur.description, await cur.fetchall())
+
+    async def list_for_user(self, user_id: int, limit: int = 20, offset: int = 0) -> list[dict]:
+        async with self._db.execute(
+            "SELECT * FROM watches WHERE user_id = ? "
+            "ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset),
+        ) as cur:
+            return _rows_to_dicts(cur.description, await cur.fetchall())
+
+    async def count_for_user(self, user_id: int) -> int:
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM watches WHERE user_id = ?", (user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row[0])
 
     async def list_enabled(self) -> list[dict]:
         async with self._db.execute("SELECT * FROM watches WHERE enabled = 1 ORDER BY id") as cur:
@@ -112,8 +185,27 @@ class WatchRepo:
         await self._db.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
         await self._db.commit()
 
+    async def remove_for_user(self, watch_id: int, user_id: int):
+        await self._db.execute(
+            "DELETE FROM match_events WHERE watch_id = ? "
+            "AND EXISTS (SELECT 1 FROM watches w WHERE w.id = ? AND w.user_id = ?)",
+            (watch_id, watch_id, user_id),
+        )
+        await self._db.execute(
+            "DELETE FROM watches WHERE id = ? AND user_id = ?", (watch_id, user_id)
+        )
+        await self._db.commit()
+
     async def get(self, watch_id: int) -> dict | None:
         async with self._db.execute("SELECT * FROM watches WHERE id = ?", (watch_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
+
+    async def get_for_user(self, watch_id: int, user_id: int) -> dict | None:
+        async with self._db.execute(
+            "SELECT * FROM watches WHERE id = ? AND user_id = ?",
+            (watch_id, user_id),
+        ) as cur:
             row = await cur.fetchone()
             return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
 
@@ -136,11 +228,23 @@ class MatchEventRepo:
 
     async def list_pending(self) -> list[dict]:
         async with self._db.execute(
-            "SELECT me.*, w.name AS watch_name, w.fts_query "
-            "FROM match_events me JOIN watches w ON me.watch_id = w.id "
+            "SELECT me.*, w.name AS watch_name, w.fts_query, bu.chat_id AS owner_chat_id "
+            "FROM match_events me "
+            "JOIN watches w ON me.watch_id = w.id "
+            "JOIN bot_users bu ON bu.id = w.user_id "
             "WHERE me.notified_at IS NULL ORDER BY me.id"
         ) as cur:
             return _rows_to_dicts(cur.description, await cur.fetchall())
+
+    async def count_for_user(self, user_id: int) -> int:
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM match_events me "
+            "JOIN watches w ON me.watch_id = w.id "
+            "WHERE w.user_id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row[0])
 
     async def mark_notified(self, event_id: int):
         await self._db.execute(

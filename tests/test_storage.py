@@ -1,7 +1,7 @@
 import pytest
 
 from dealgoblin.storage.db import init_db
-from dealgoblin.storage.repo import MatchEventRepo, MessageRepo, SourceRepo, WatchRepo
+from dealgoblin.storage.repo import BotUserRepo, MatchEventRepo, MessageRepo, SourceRepo, WatchRepo
 
 
 @pytest.fixture
@@ -22,6 +22,7 @@ async def test_schema_tables_exist(db):
     assert "sources" in tables
     assert "messages" in tables
     assert "watches" in tables
+    assert "bot_users" in tables
     assert "match_events" in tables
     assert "messages_fts" in tables
 
@@ -46,7 +47,11 @@ async def test_message_dedupe(db):
 
 
 async def test_match_event_dedupe(db):
-    await db.execute("INSERT INTO watches (name, fts_query) VALUES ('w', 'test')")
+    user = await BotUserRepo(db).ensure(chat_id=100, tg_user_id=100)
+    await db.execute(
+        "INSERT INTO watches (user_id, name, fts_query) VALUES (?, 'w', 'test')",
+        (user["id"],),
+    )
     await db.execute("INSERT INTO messages (chat_id, message_id, text_norm) VALUES (1, 1, 'test')")
     await db.commit()
     await db.execute("INSERT INTO match_events (watch_id, message_rowid) VALUES (1, 1)")
@@ -103,8 +108,9 @@ async def test_message_insert_duplicate_returns_none(db):
 
 
 async def test_watch_crud(db):
+    user = await BotUserRepo(db).ensure(chat_id=300, tg_user_id=300)
     repo = WatchRepo(db)
-    wid = await repo.add(name="lamps", fts_query="lamp OR lantern")
+    wid = await repo.add(user_id=user["id"], name="lamps", fts_query="lamp OR lantern")
     watches = await repo.list_all()
     assert len(watches) == 1
     assert watches[0]["name"] == "lamps"
@@ -116,14 +122,16 @@ async def test_watch_crud(db):
 
 
 async def test_match_event_create_and_pending(db):
+    user = await BotUserRepo(db).ensure(chat_id=555, tg_user_id=555)
     repo_w = WatchRepo(db)
     repo_msg = MessageRepo(db)
     repo_me = MatchEventRepo(db)
-    wid = await repo_w.add(name="w", fts_query="q")
+    wid = await repo_w.add(user_id=user["id"], name="w", fts_query="q")
     rowid = await repo_msg.insert(chat_id=1, message_id=1, text_raw="t", text_norm="t")
     await repo_me.create(watch_id=wid, message_rowid=rowid)
     pending = await repo_me.list_pending()
     assert len(pending) == 1
     assert pending[0]["watch_id"] == wid
+    assert pending[0]["owner_chat_id"] == 555
     await repo_me.mark_notified(pending[0]["id"])
     assert await repo_me.list_pending() == []

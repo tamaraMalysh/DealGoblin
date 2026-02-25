@@ -11,10 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 class Notifier:
-    def __init__(self, bot: Bot, db, owner_chat_id: int, poll_interval: float = 2.0):
+    def __init__(self, bot: Bot, db, poll_interval: float = 2.0):
         self._bot = bot
         self._db = db
-        self._owner_chat_id = owner_chat_id
         self._poll_interval = poll_interval
         self._me_repo = MatchEventRepo(db)
         self._msg_repo = MessageRepo(db)
@@ -44,8 +43,13 @@ class Notifier:
             link = msg.get("link") or ""
             watch_name = event.get("watch_name", "?")
             text = f"Match: {watch_name}\n\n{snippet}\n\n{link}"
+            owner_chat_id = event.get("owner_chat_id")
+            if owner_chat_id is None:
+                logger.warning("Event %s has no owner_chat_id, skipping", event["id"])
+                await self._me_repo.mark_notified(event["id"])
+                continue
             try:
-                await self._bot.send_message(self._owner_chat_id, text)
+                await self._bot.send_message(owner_chat_id, text)
                 await self._me_repo.mark_notified(event["id"])
             except Exception:
                 logger.exception("Failed to send notification for event %d", event["id"])

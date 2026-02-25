@@ -27,9 +27,7 @@ async def run():
     db = await init_db(settings.db_path)
 
     # Telethon client
-    telethon = TelegramClient(
-        settings.session_path, settings.telegram_api_id, settings.telegram_api_hash
-    )
+    telethon = TelegramClient(settings.session_path, settings.telegram_api_id, settings.telegram_api_hash)
     await telethon.start()
 
     # aiogram bot
@@ -50,7 +48,7 @@ async def run():
     await collector.start()
 
     # Notifier
-    notifier = Notifier(bot=bot, db=db, owner_chat_id=settings.owner_chat_id)
+    notifier = Notifier(bot=bot, db=db)
     notifier_task = asyncio.create_task(notifier.start())
 
     # Graceful shutdown
@@ -65,24 +63,35 @@ async def run():
         loop.add_signal_handler(sig, _signal_handler)
 
     # Start polling (non-blocking)
-    polling_task = asyncio.create_task(dp.start_polling(bot))
+    polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
 
-    await stop_event.wait()
-
-    # Cleanup
-    logger.info("Shutting down...")
-    await notifier.stop()
-    notifier_task.cancel()
-    await dp.stop_polling()
-    polling_task.cancel()
-    await telethon.disconnect()
-    await db.close()
-    await bot.session.close()
-    logger.info("Shutdown complete")
+    try:
+        stop_wait_task = asyncio.create_task(stop_event.wait())
+        done, _ = await asyncio.wait({stop_wait_task, polling_task}, return_when=asyncio.FIRST_COMPLETED)
+        if polling_task in done:
+            # Surface polling errors instead of silently exiting.
+            await polling_task
+    finally:
+        # Cleanup
+        logger.info("Shutting down...")
+        await notifier.stop()
+        notifier_task.cancel()
+        polling_task.cancel()
+        try:
+            await asyncio.wait_for(dp.stop_polling(), timeout=5)
+        except (TimeoutError, Exception) as e:
+            logger.error("Polling stop timed out, forcing shutdown: %s", e)
+        await telethon.disconnect()
+        await db.close()
+        await bot.session.close()
+        logger.info("Shutdown complete")
 
 
 def main():
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    except KeyboardInterrupt:
+        logger.info("Interrupted by user (Ctrl+C)")
 
 
 if __name__ == "__main__":

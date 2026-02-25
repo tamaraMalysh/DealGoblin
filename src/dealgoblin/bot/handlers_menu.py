@@ -37,8 +37,6 @@ from dealgoblin.bot.ui import (
     settings_text,
     stats_markup,
     stats_text,
-    subscription_markup,
-    subscription_text,
 )
 from dealgoblin.match.fts_query import build_fts_query
 
@@ -130,12 +128,6 @@ async def menu_help(query: CallbackQuery):
 @router.callback_query(SettingsCallback.filter(F.action == "keywords"))
 async def settings_keywords(query: CallbackQuery, db: aiosqlite.Connection):
     await render_keywords_screen(query, db, page=1)
-    await query.answer()
-
-
-@router.callback_query(SettingsCallback.filter(F.action == "subscription"))
-async def settings_subscription(query: CallbackQuery):
-    await query.message.edit_text(subscription_text(), reply_markup=subscription_markup())
     await query.answer()
 
 

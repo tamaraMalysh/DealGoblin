@@ -69,7 +69,7 @@ async def keywords_add_start(
 ):
     await state.set_state(AddKeywordState.waiting_for_text)
     await state.update_data(list_page=callback_data.page, menu_message_id=query.message.message_id)
-    await query.message.answer("🍀 Введите слово для поиска:")
+    await query.message.answer("🌱 Введите слово для поиска:")
     await query.answer()
 
 

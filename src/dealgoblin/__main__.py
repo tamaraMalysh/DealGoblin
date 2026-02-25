@@ -27,7 +27,11 @@ async def run():
     db = await init_db(settings.db_path)
 
     # Telethon client
-    telethon = TelegramClient(settings.session_path, settings.telegram_api_id, settings.telegram_api_hash)
+    telethon = TelegramClient(
+        settings.session_path,
+        settings.telegram_api_id,
+        settings.telegram_api_hash,
+    )
     await telethon.start()
 
     # aiogram bot
@@ -67,7 +71,10 @@ async def run():
 
     try:
         stop_wait_task = asyncio.create_task(stop_event.wait())
-        done, _ = await asyncio.wait({stop_wait_task, polling_task}, return_when=asyncio.FIRST_COMPLETED)
+        done, _ = await asyncio.wait(
+            {stop_wait_task, polling_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
         if polling_task in done:
             # Surface polling errors instead of silently exiting.
             await polling_task

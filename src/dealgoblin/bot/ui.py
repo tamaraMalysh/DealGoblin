@@ -16,7 +16,7 @@ HISTORY_PAGE_SIZE = 5
 
 
 def main_menu_text() -> str:
-    return "🍀 Меню чат-бота"
+    return "🌱 Меню чат-бота"
 
 
 def main_menu_markup() -> InlineKeyboardMarkup:
@@ -33,7 +33,7 @@ def settings_text(user: dict, watch_count: int, found_count: int) -> str:
     city = user.get("city") or "Тбилиси"
     subscription = user.get("subscription") or "FREE"
     return (
-        "🍀 Настройки бота:\n"
+        "🌱 Настройки бота:\n"
         f"город: ✅ {city}\n"
         f"кол-во слов для поиска: {watch_count}\n"
         f"найдено объявлений: {found_count}\n"
@@ -47,19 +47,8 @@ def settings_markup() -> InlineKeyboardMarkup:
         text="Добавить/удалить поисковые слова",
         callback_data=SettingsCallback(action="keywords"),
     )
-    builder.button(text="Подписка Flower🌸", callback_data=SettingsCallback(action="subscription"))
     builder.button(text="<< Назад", callback_data=SettingsCallback(action="back"))
     builder.adjust(1)
-    return builder.as_markup()
-
-
-def subscription_text() -> str:
-    return "🌸 Flower подписка\nРасширенные возможности будут добавлены в следующих итерациях."
-
-
-def subscription_markup() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="<< Назад", callback_data=MenuCallback(action="settings"))
     return builder.as_markup()
 
 
@@ -69,7 +58,7 @@ def keywords_text(watches: list[dict], page: int, total: int) -> str:
     else:
         lines = [f"{item['id']}. {item['name']}" for item in watches]
     pages = max(1, (total + KEYWORDS_PAGE_SIZE - 1) // KEYWORDS_PAGE_SIZE)
-    return "🍀 Поисковые слова:\n" + "\n".join(lines) + f"\n\nСтраница {page}/{pages}"
+    return "🌱 Поисковые слова:\n" + "\n".join(lines) + f"\n\nСтраница {page}/{pages}"
 
 
 def keywords_markup(watches: list[dict], page: int, total: int) -> InlineKeyboardMarkup:
@@ -92,7 +81,7 @@ def keywords_markup(watches: list[dict], page: int, total: int) -> InlineKeyboar
 
 
 def keyword_details_text(watch: dict) -> str:
-    return f"🍀 Поисковое слово\n\nНазвание: {watch['name']}\nFTS: {watch['fts_query']}"
+    return f"🌱 Поисковое слово\n\nНазвание: {watch['name']}\nFTS: {watch['fts_query']}"
 
 
 def keyword_details_markup(watch_id: int, page: int) -> InlineKeyboardMarkup:
@@ -109,9 +98,9 @@ def keyword_details_markup(watch_id: int, page: int) -> InlineKeyboardMarkup:
 def help_text() -> str:
     return (
         "Меня настроить очень просто. Я помогу Вам это сделать в несколько шагов!\n"
-        '🍀 1. Перейдите в "Настройки" (город сейчас по умолчанию: Тбилиси).\n'
-        '🍀 2. В пункте "Добавить/удалить поисковые слова" добавьте поисковое слово/фразу.\n'
-        "🍀 3. Там же можно удалить слово, если оно больше не нужно.\n\n"
+        '🌱 1. Перейдите в "Настройки" (город сейчас по умолчанию: Тбилиси).\n'
+        '🌱 2. В пункте "Добавить/удалить поисковые слова" добавьте поисковое слово/фразу.\n'
+        "🌱 3. Там же можно удалить слово, если оно больше не нужно.\n\n"
         "Как я ищу слова в объявлениях:\n"
         '🍏 запрос "стиральная машина" ищет фразу подряд в указанном порядке.\n'
         '🍏 запрос "стиральная машина -lg -samsung" исключает минус-слова.'

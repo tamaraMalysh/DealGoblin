@@ -26,10 +26,25 @@ uv run ruff check src/ tests/
 ## Format
 uv run ruff format src/ tests/
 
+## Docker (optional)
+docker compose build
+
+## Run (Docker)
+docker compose up
+
+## First Telethon Login (Docker)
+docker compose run --rm dealgoblin
+
+## Resolve Source ID (Docker)
+docker compose run --rm dealgoblin \
+  uv run python -m dealgoblin.tools.resolve_source https://t.me/<username>
+
 ## Notes
 - Keep command definitions consistent with `/AGENTS.md`.
 - If uv is replaced, update this file and `/AGENTS.md` in the same change.
 - Sources are configured via `.env` using `SOURCE_CHAT_IDS` (comma-separated canonical IDs).
+- Docker runtime expects `.env` for secrets/config and mounts `./data` to persist SQLite + Telethon session files.
+- First Telethon user-auth flow in Docker should be completed with `docker compose run --rm dealgoblin`; session files persist in `./data`.
 - Optional startup backfill depth is `SOURCE_BACKFILL_LIMIT` (default `100`).
 - Optional raw forwarding of every ingested message is `FORWARD_ALL_INGESTED=true` (to `OWNER_CHAT_ID`).
 - Telethon reconnect policy is configurable via `.env`:

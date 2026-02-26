@@ -1,0 +1,12 @@
+services:
+  dealgoblin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

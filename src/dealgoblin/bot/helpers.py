@@ -1,17 +1,5 @@
 from __future__ import annotations
 
-import re
-
-
-def parse_source_arg(arg: str) -> str | None:
-    arg = arg.strip()
-    m = re.match(r"https?://t\.me/(\w+)", arg)
-    if m:
-        return f"@{m.group(1)}"
-    if arg.startswith("@") and len(arg) > 1:
-        return arg
-    return None
-
 
 def format_source_list(sources: list[dict]) -> str:
     if not sources:

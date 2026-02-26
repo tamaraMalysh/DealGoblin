@@ -4,8 +4,6 @@ import aiosqlite
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
-from telethon import TelegramClient
-from telethon import utils as tl_utils
 
 from dealgoblin.bot.callbacks import (
     HelpCallback,
@@ -20,7 +18,6 @@ from dealgoblin.bot.helpers import (
     format_search_results,
     format_source_list,
     format_watch_list,
-    parse_source_arg,
 )
 from dealgoblin.bot.ui import (
     HISTORY_PAGE_SIZE,
@@ -181,43 +178,6 @@ async def cmd_status(message: Message, db: aiosqlite.Connection):
 async def cmd_sources(message: Message, db: aiosqlite.Connection):
     sources = await get_repos(db)["source"].list_all()
     await message.answer(format_source_list(sources))
-
-
-@router.message(Command("source_add"))
-async def cmd_source_add(message: Message, db: aiosqlite.Connection, telethon: TelegramClient):
-    args = (message.text or "").split(maxsplit=1)
-    if len(args) < 2:
-        await message.answer("Usage: /source_add <t.me link or @username>")
-        return
-    parsed = parse_source_arg(args[1])
-    if not parsed:
-        await message.answer("Invalid source. Use @username or https://t.me/username")
-        return
-    username = parsed.lstrip("@")
-    try:
-        entity = await telethon.get_entity(username)
-        chat_id = tl_utils.get_peer_id(entity)
-        title = getattr(entity, "title", username)
-    except Exception as exc:
-        await message.answer(f"Could not resolve {parsed}: {exc}")
-        return
-    await get_repos(db)["source"].add(chat_id=chat_id, username=username, title=title)
-    await message.answer(f"Added source: {title} ({chat_id})")
-
-
-@router.message(Command("source_remove"))
-async def cmd_source_remove(message: Message, db: aiosqlite.Connection):
-    args = (message.text or "").split(maxsplit=1)
-    if len(args) < 2:
-        await message.answer("Usage: /source_remove <chat_id>")
-        return
-    try:
-        chat_id = int(args[1])
-    except ValueError:
-        await message.answer("Provide a numeric chat_id.")
-        return
-    await get_repos(db)["source"].remove(chat_id=chat_id)
-    await message.answer(f"Removed source {chat_id}.")
 
 
 @router.message(Command("watches"))

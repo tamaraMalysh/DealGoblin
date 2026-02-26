@@ -1,16 +1,4 @@
-from dealgoblin.bot.helpers import format_search_results, format_source_list, parse_source_arg
-
-
-def test_parse_source_username():
-    assert parse_source_arg("@fleamarket") == "@fleamarket"
-
-
-def test_parse_source_tme_link():
-    assert parse_source_arg("https://t.me/fleamarket") == "@fleamarket"
-
-
-def test_parse_source_invalid():
-    assert parse_source_arg("not a source") is None
+from dealgoblin.bot.helpers import format_search_results, format_source_list
 
 
 def test_format_source_list_empty():

@@ -83,6 +83,26 @@ async def test_source_get_all_chat_ids(db):
     assert set(ids) == {100, 200}
 
 
+async def test_source_sync_authoritative_upserts_and_removes_stale(db):
+    repo = SourceRepo(db)
+    await repo.add(chat_id=100, username="old", title="Old")
+    await repo.add(chat_id=200, username="keep", title="Keep")
+
+    await repo.sync_authoritative(
+        [
+            {"chat_id": 200, "username": None, "title": "Updated"},
+            {"chat_id": 300, "username": "new", "title": "New"},
+        ]
+    )
+
+    sources = await repo.list_all()
+    assert {row["chat_id"] for row in sources} == {200, 300}
+    by_chat = {row["chat_id"]: row for row in sources}
+    assert by_chat[200]["username"] == "keep"
+    assert by_chat[200]["title"] == "Updated"
+    assert by_chat[300]["username"] == "new"
+
+
 async def test_message_insert_and_search(db):
     repo = MessageRepo(db)
     rowid = await repo.insert(

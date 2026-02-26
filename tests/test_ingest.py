@@ -36,8 +36,8 @@ def test_get_peer_id_returns_negative_for_channel():
     assert peer_id != channel.id
 
 
-def test_source_add_uses_get_peer_id():
-    """Verify source_add handler uses get_peer_id, not entity.id."""
+def test_canonical_chat_ids_use_get_peer_id():
+    """Canonical source IDs should use get_peer_id, not raw entity.id."""
     channel = Channel(
         id=1234567890,
         title="Test Channel",

@@ -11,8 +11,11 @@ from dealgoblin.bot.handlers import router
 from dealgoblin.bot.notifier import Notifier
 from dealgoblin.config import Settings
 from dealgoblin.ingest.collector import Collector
+from dealgoblin.ingest.source_sync import sync_sources_from_env
 from dealgoblin.match.matcher import evaluate_message
 from dealgoblin.storage.db import init_db
+from dealgoblin.storage.repo import MessageRepo, SourceRepo
+from dealgoblin.telethon_auth import ensure_user_session
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +36,15 @@ async def run():
         settings.telegram_api_hash,
     )
     await telethon.start()
+    await ensure_user_session(telethon)
+
+    source_repo = SourceRepo(db)
+    await sync_sources_from_env(
+        client=telethon,
+        source_repo=source_repo,
+        chat_ids=settings.source_chat_ids,
+    )
+    msg_repo = MessageRepo(db)
 
     # aiogram bot
     bot = Bot(token=settings.bot_token)
@@ -41,15 +53,29 @@ async def run():
 
     # Share state via dispatcher workflow data (injected as handler kwargs)
     dp["db"] = db
-    dp["telethon"] = telethon
 
     # Matcher callback
     async def on_ingest(rowid: int, text_norm: str):
         await evaluate_message(db, rowid, text_norm)
+        if not settings.forward_all_ingested:
+            return
+
+        msg = await msg_repo.get_by_rowid(rowid)
+        if not msg:
+            return
+        snippet = (msg.get("text_raw") or "")[:3400]
+        link = msg.get("link") or ""
+        text = f"Source: {msg['chat_id']}\n\n{snippet}"
+        if link:
+            text = f"{text}\n\n{link}"
+        try:
+            await bot.send_message(settings.owner_chat_id, text)
+        except Exception:
+            logger.exception("Failed to forward ingested message rowid=%s", rowid)
 
     # Collector
     collector = Collector(client=telethon, db=db, on_ingest=on_ingest)
-    await collector.start()
+    await collector.start(backfill_limit=settings.source_backfill_limit)
 
     # Notifier
     notifier = Notifier(bot=bot, db=db)

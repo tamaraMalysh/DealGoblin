@@ -14,12 +14,16 @@ class SourceRepo:
     def __init__(self, db: aiosqlite.Connection):
         self._db = db
 
-    async def add(self, chat_id: int, username: str | None = None, title: str | None = None):
-        await self._db.execute(
+    async def add(
+        self, chat_id: int, username: str | None = None, title: str | None = None
+    ) -> bool:
+        async with self._db.execute(
             "INSERT OR IGNORE INTO sources (chat_id, username, title) VALUES (?, ?, ?)",
             (chat_id, username, title),
-        )
+        ) as cur:
+            inserted = cur.rowcount > 0
         await self._db.commit()
+        return inserted
 
     async def remove(self, chat_id: int):
         await self._db.execute("DELETE FROM sources WHERE chat_id = ?", (chat_id,))
@@ -32,6 +36,32 @@ class SourceRepo:
     async def get_all_chat_ids(self) -> list[int]:
         async with self._db.execute("SELECT chat_id FROM sources") as cur:
             return [row[0] for row in await cur.fetchall()]
+
+    async def sync_authoritative(self, entries: list[dict[str, int | str | None]]) -> None:
+        chat_ids = [int(entry["chat_id"]) for entry in entries]
+        if chat_ids:
+            placeholders = ",".join("?" for _ in chat_ids)
+            await self._db.execute(
+                f"DELETE FROM sources WHERE chat_id NOT IN ({placeholders})",
+                chat_ids,
+            )
+        else:
+            await self._db.execute("DELETE FROM sources")
+
+        for entry in entries:
+            await self._db.execute(
+                "INSERT INTO sources (chat_id, username, title) VALUES (?, ?, ?) "
+                "ON CONFLICT(chat_id) DO UPDATE SET "
+                "username = COALESCE(excluded.username, sources.username), "
+                "title = COALESCE(excluded.title, sources.title)",
+                (
+                    int(entry["chat_id"]),
+                    entry.get("username"),
+                    entry.get("title"),
+                ),
+            )
+
+        await self._db.commit()
 
 
 class BotUserRepo:

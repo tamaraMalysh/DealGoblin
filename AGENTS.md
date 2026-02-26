@@ -14,6 +14,7 @@ These are default conventions for the current greenfield state and should be ali
 - Keep changes focused and minimal for the requested task.
 - Update docs when behavior, commands, or workflows change.
 - Do not introduce conflicting command variants across docs.
+- Source ingestion allowlist is env-driven (`SOURCE_CHAT_IDS`), not runtime bot commands.
 
 ## Definition of Done
 - Requested behavior is implemented.

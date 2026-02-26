@@ -31,7 +31,6 @@ def main_menu_markup() -> InlineKeyboardMarkup:
 
 def settings_text(user: dict, watch_count: int, found_count: int) -> str:
     city = user.get("city") or "Тбилиси"
-    subscription = user.get("subscription") or "FREE"
     return (
         "🌱 Настройки бота:\n"
         f"город: ✅ {city}\n"

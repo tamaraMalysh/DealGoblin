@@ -26,6 +26,23 @@ uv run ruff check src/ tests/
 ## Format
 uv run ruff format src/ tests/
 
+## Security
+uv run bandit -q -r src/dealgoblin -ll -ii
+uv export --frozen --format requirements.txt --extra dev --no-emit-project --output-file /tmp/requirements-deps.txt
+uv run pip-audit --strict -r /tmp/requirements-deps.txt --no-deps
+
+## CI Quality Gates (GitHub Actions)
+Workflow: `.github/workflows/ci.yml` (`CI` / `quality`)
+
+Gate order:
+1. uv sync --frozen --extra dev
+2. uv run ruff format --check src/ tests/
+3. uv run ruff check src/ tests/
+4. uv run pytest -q
+5. uv run bandit -q -r src/dealgoblin -ll -ii
+6. uv export --frozen --format requirements.txt --extra dev --no-emit-project --output-file /tmp/requirements-deps.txt
+7. uv run pip-audit --strict -r /tmp/requirements-deps.txt --no-deps
+
 ## Docker (optional)
 docker compose build
 

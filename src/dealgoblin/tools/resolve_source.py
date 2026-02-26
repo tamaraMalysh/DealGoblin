@@ -5,8 +5,7 @@ import asyncio
 import re
 from typing import Literal
 
-from telethon import TelegramClient
-from telethon import functions
+from telethon import TelegramClient, functions
 from telethon import utils as tl_utils
 
 from dealgoblin.config import Settings

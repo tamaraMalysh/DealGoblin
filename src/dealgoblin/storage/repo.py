@@ -40,11 +40,16 @@ class SourceRepo:
     async def sync_authoritative(self, entries: list[dict[str, int | str | None]]) -> None:
         chat_ids = [int(entry["chat_id"]) for entry in entries]
         if chat_ids:
-            placeholders = ",".join("?" for _ in chat_ids)
-            await self._db.execute(
-                f"DELETE FROM sources WHERE chat_id NOT IN ({placeholders})",
-                chat_ids,
-            )
+            incoming_chat_ids = set(chat_ids)
+            async with self._db.execute("SELECT chat_id FROM sources") as cur:
+                existing_chat_ids = [row[0] for row in await cur.fetchall()]
+
+            for existing_chat_id in existing_chat_ids:
+                if existing_chat_id not in incoming_chat_ids:
+                    await self._db.execute(
+                        "DELETE FROM sources WHERE chat_id = ?",
+                        (existing_chat_id,),
+                    )
         else:
             await self._db.execute("DELETE FROM sources")
 

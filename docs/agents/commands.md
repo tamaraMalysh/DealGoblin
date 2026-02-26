@@ -11,6 +11,12 @@ uv run python -m dealgoblin
 ## Resolve Source ID
 uv run python -m dealgoblin.tools.resolve_source https://t.me/<username>
 
+Also supports:
+- uv run python -m dealgoblin.tools.resolve_source https://t.me/addlist/<slug>
+
+For addlist links, the resolver prints one `chat_id=...` line per resolved chat and a final
+`SOURCE_CHAT_IDS=...` line suitable for `.env`.
+
 ## Test
 uv run pytest
 

@@ -4,13 +4,19 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
+from telethon import utils as tl_utils
+from telethon.tl.types import PeerChannel, PeerChat, PeerUser
 
 from dealgoblin.ingest.collector import Collector
 from dealgoblin.ingest.source_sync import sync_sources_from_env
 from dealgoblin.storage.db import init_db
 from dealgoblin.storage.repo import MessageRepo, SourceRepo
 from dealgoblin.telethon_auth import ensure_user_session
-from dealgoblin.tools.resolve_source import normalize_source_arg
+from dealgoblin.tools.resolve_source import (
+    extract_addlist_chat_ids,
+    normalize_source_arg,
+    parse_source_arg,
+)
 
 
 class _FakeTelethon:
@@ -104,8 +110,53 @@ def test_normalize_source_arg():
     assert normalize_source_arg("https://t.me/baraholka_tbi") == "@baraholka_tbi"
 
 
+def test_parse_source_arg_accepts_addlist():
+    assert parse_source_arg("https://t.me/addlist/3q5RS6gv2pk2YzQy") == (
+        "addlist",
+        "3q5RS6gv2pk2YzQy",
+    )
+
+
 def test_normalize_source_arg_rejects_invalid():
     with pytest.raises(ValueError):
-        normalize_source_arg("https://t.me/addlist/abcd")
+        parse_source_arg("https://t.me/addlist/")
     with pytest.raises(ValueError):
-        normalize_source_arg("not-a-link")
+        parse_source_arg("not-a-link")
+
+
+def test_extract_addlist_chat_ids_chatlist_invite_path():
+    invite_result = SimpleNamespace(
+        chats=[PeerChat(chat_id=321)],
+        peers=[
+            PeerChannel(channel_id=123),
+            PeerUser(user_id=9),
+            PeerChat(chat_id=555),
+            PeerChannel(channel_id=123),
+        ],
+    )
+
+    expected = sorted(
+        {
+            tl_utils.get_peer_id(PeerChat(chat_id=321)),
+            tl_utils.get_peer_id(PeerChat(chat_id=555)),
+            tl_utils.get_peer_id(PeerChannel(channel_id=123)),
+        }
+    )
+    assert extract_addlist_chat_ids(invite_result) == expected
+
+
+def test_extract_addlist_chat_ids_chatlist_invite_already_path():
+    invite_result = SimpleNamespace(
+        chats=[PeerChat(chat_id=17)],
+        missing_peers=[PeerChannel(channel_id=777), PeerUser(user_id=8)],
+        already_peers=[PeerChat(chat_id=17), PeerChat(chat_id=99)],
+    )
+
+    expected = sorted(
+        {
+            tl_utils.get_peer_id(PeerChat(chat_id=17)),
+            tl_utils.get_peer_id(PeerChat(chat_id=99)),
+            tl_utils.get_peer_id(PeerChannel(channel_id=777)),
+        }
+    )
+    assert extract_addlist_chat_ids(invite_result) == expected

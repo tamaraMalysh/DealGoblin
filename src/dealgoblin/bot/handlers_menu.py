@@ -92,6 +92,11 @@ async def cmd_help(message: Message):
     await message.answer(help_text(), reply_markup=help_markup())
 
 
+@router.message(Command("menu"))
+async def cmd_menu(message: Message):
+    await render_main_menu(message)
+
+
 @router.callback_query(MenuCallback.filter(F.action == "back"))
 async def menu_back(query: CallbackQuery):
     await query.message.edit_text(main_menu_text(), reply_markup=main_menu_markup())

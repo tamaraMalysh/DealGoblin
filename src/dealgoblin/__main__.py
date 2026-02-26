@@ -6,6 +6,7 @@ import signal
 from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, MenuButtonCommands
 from telethon import TelegramClient
 
 from dealgoblin.bot.handlers import router
@@ -54,8 +55,8 @@ async def _cancel_and_wait(task: asyncio.Task[object] | None) -> None:
         await task
     except asyncio.CancelledError:
         pass
-    except Exception:
-        logger.debug("Task %r ended with an exception during shutdown", task, exc_info=True)
+    except Exception as e:
+        logger.debug(f"Task %r ended with an exception during shutdown {e}", task, exc_info=True)
 
 
 async def _monitor_telethon_disconnected(client: TelegramClient) -> None:
@@ -89,6 +90,14 @@ async def _bot_healthcheck_loop(
                     f"Bot healthcheck failed {failures} time(s) in a row"
                 ) from exc
         await asyncio.sleep(interval_seconds)
+
+
+async def _configure_bot_menu(bot: Bot) -> None:
+    await bot.set_my_commands(
+        commands=[BotCommand(command="menu", description="Menu")],
+        scope=BotCommandScopeAllPrivateChats(),
+    )
+    await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
 async def _run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
@@ -126,6 +135,7 @@ async def _run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
         msg_repo = MessageRepo(db)
 
         bot = Bot(token=settings.bot_token)
+        await _configure_bot_menu(bot)
         dp = Dispatcher()
         dp.include_router(router)
         dp["db"] = db

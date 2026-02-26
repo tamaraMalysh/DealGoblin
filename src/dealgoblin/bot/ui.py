@@ -37,7 +37,6 @@ def settings_text(user: dict, watch_count: int, found_count: int) -> str:
         f"город: ✅ {city}\n"
         f"кол-во слов для поиска: {watch_count}\n"
         f"найдено объявлений: {found_count}\n"
-        f"подписка: {subscription}"
     )
 
 

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
+from aiogram.types import BotCommandScopeAllPrivateChats, MenuButtonCommands
 
 from dealgoblin import __main__ as runtime
 from dealgoblin.config import Settings
@@ -49,6 +50,8 @@ def patched_runtime(monkeypatch):
             self.token = token
             self.calls = 0
             self.session = FakeSession()
+            self.set_my_commands_calls: list[dict[str, object]] = []
+            self.set_chat_menu_button_calls: list[dict[str, object]] = []
             type(self).last_instance = self
 
         async def get_me(self):
@@ -59,6 +62,33 @@ def patched_runtime(monkeypatch):
 
         async def send_message(self, *_args, **_kwargs):
             return None
+
+        async def set_my_commands(
+            self,
+            commands,
+            scope=None,
+            language_code=None,
+            request_timeout=None,
+        ):
+            self.set_my_commands_calls.append(
+                {
+                    "commands": commands,
+                    "scope": scope,
+                    "language_code": language_code,
+                    "request_timeout": request_timeout,
+                }
+            )
+            return True
+
+        async def set_chat_menu_button(self, chat_id=None, menu_button=None, request_timeout=None):
+            self.set_chat_menu_button_calls.append(
+                {
+                    "chat_id": chat_id,
+                    "menu_button": menu_button,
+                    "request_timeout": request_timeout,
+                }
+            )
+            return True
 
     class FakeDispatcher:
         polling_exception = None
@@ -190,6 +220,30 @@ async def test_run_once_restarts_on_polling_failure(patched_runtime):
     assert patched_runtime.fake_telethon_cls.last_instance.disconnect_called is True
     assert patched_runtime.fake_bot_cls.last_instance.session.closed is True
     assert patched_runtime.db.closed is True
+
+
+async def test_run_once_configures_private_menu_button_and_commands(patched_runtime):
+    patched_runtime.fake_dispatcher_cls.polling_exception = RuntimeError("polling exploded")
+    settings = _make_settings()
+
+    with pytest.raises(runtime.RuntimeRestartError, match="polling"):
+        await runtime._run_once(settings=settings, stop_event=asyncio.Event())
+
+    bot = patched_runtime.fake_bot_cls.last_instance
+    assert bot is not None
+    assert len(bot.set_my_commands_calls) == 1
+    assert len(bot.set_chat_menu_button_calls) == 1
+
+    command_call = bot.set_my_commands_calls[0]
+    commands = command_call["commands"]
+    assert len(commands) == 1
+    assert commands[0].command == "menu"
+    assert commands[0].description == "Menu"
+    assert isinstance(command_call["scope"], BotCommandScopeAllPrivateChats)
+
+    menu_call = bot.set_chat_menu_button_calls[0]
+    assert menu_call["chat_id"] is None
+    assert isinstance(menu_call["menu_button"], MenuButtonCommands)
 
 
 async def test_run_supervised_retries_with_capped_backoff(monkeypatch):

@@ -83,7 +83,7 @@ class Collector:
         )
         if rowid is None:
             return None
-        logger.info("Ingested message %d from %s on_ingest %s text norm %s", message.id, chat_id, bool(self._on_ingest), text_norm)
+        logger.info("Ingested message %d from %s", message.id, chat_id)
         if self._on_ingest and text_norm:
             await self._on_ingest(rowid, text_norm)
         return rowid

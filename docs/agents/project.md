@@ -20,6 +20,7 @@
 - Python is the primary language.
 - uv is the package and environment manager.
 - Agent instruction filename convention is `AGENTS.md` (plural).
+- Default production target is a single VPS running Docker Compose with persistent `./data`.
 
 ## Change Policy
 - If project stack or tooling changes, update:

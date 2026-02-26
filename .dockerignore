@@ -10,8 +10,10 @@ __pycache__/
 *.egg-info/
 dist/
 docs/
+deploy/
 plans/
 tests/
 data/
 .env
+.env.example
 *.session

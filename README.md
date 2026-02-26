@@ -18,6 +18,16 @@ uv run python -m dealgoblin
 
 Configure runtime secrets and IDs in `.env` (for example: Telegram API credentials, bot token, owner/source chat IDs).
 
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in required values:
+
+- `TELEGRAM_API_ID`
+- `TELEGRAM_API_HASH`
+- `BOT_TOKEN`
+- `OWNER_CHAT_ID`
+- `SOURCE_CHAT_IDS` (comma-separated Telegram chat IDs)
+
 ## Quality Checks
 
 ```bash
@@ -33,9 +43,14 @@ uv run pip-audit --strict -r /tmp/requirements-deps.txt --no-deps
 
 GitHub Actions workflow `CI` (`.github/workflows/ci.yml`) runs on pull requests and pushes to `main` and enforces the full quality gate.
 
-## Docker (Optional)
+## Docker (Local/Single Host)
 
 ```bash
 docker compose build
 docker compose up
 ```
+
+For long-running production deployment on a VPS with persistent SQLite/session data, use:
+
+- [VPS deployment guide](docs/deployment-vps.md)
+- [systemd unit template](deploy/systemd/dealgoblin.service)

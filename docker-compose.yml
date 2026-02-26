@@ -3,10 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: dealgoblin
     env_file:
       - .env
     volumes:
       - ./data:/app/data
+    init: true
     restart: unless-stopped
-    stdin_open: true
-    tty: true

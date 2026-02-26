@@ -32,3 +32,12 @@ uv run ruff format src/ tests/
 - Sources are configured via `.env` using `SOURCE_CHAT_IDS` (comma-separated canonical IDs).
 - Optional startup backfill depth is `SOURCE_BACKFILL_LIMIT` (default `100`).
 - Optional raw forwarding of every ingested message is `FORWARD_ALL_INGESTED=true` (to `OWNER_CHAT_ID`).
+- Telethon reconnect policy is configurable via `.env`:
+  - `TELETHON_CONNECTION_RETRIES` (default `-1`, effectively infinite)
+  - `TELETHON_RETRY_DELAY_SECONDS` (default `1.0`)
+- Runtime supervisor restart backoff is configurable via `.env`:
+  - `RUNTIME_RESTART_BASE_DELAY_SECONDS` (default `3.0`)
+  - `RUNTIME_RESTART_MAX_DELAY_SECONDS` (default `60.0`)
+- Bot API health watchdog is configurable via `.env`:
+  - `BOT_HEALTHCHECK_INTERVAL_SECONDS` (default `15.0`)
+  - `BOT_HEALTHCHECK_FAILURE_THRESHOLD` (default `8`)

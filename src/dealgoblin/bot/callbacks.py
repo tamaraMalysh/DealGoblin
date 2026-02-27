@@ -19,7 +19,3 @@ class KeywordsCallback(CallbackData, prefix="keywords"):
 
 class HelpCallback(CallbackData, prefix="help"):
     action: str
-
-
-class HistoryCallback(CallbackData, prefix="history"):
-    page: int = 1

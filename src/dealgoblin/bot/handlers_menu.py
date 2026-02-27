@@ -7,7 +7,6 @@ from aiogram.types import CallbackQuery, Message
 
 from dealgoblin.bot.callbacks import (
     HelpCallback,
-    HistoryCallback,
     KeywordsCallback,
     MenuCallback,
     SettingsCallback,
@@ -20,14 +19,11 @@ from dealgoblin.bot.helpers import (
     format_watch_list,
 )
 from dealgoblin.bot.ui import (
-    HISTORY_PAGE_SIZE,
     help_info_text,
     help_markup,
     help_secondary_markup,
     help_support_text,
     help_text,
-    history_markup,
-    history_text,
     main_menu_markup,
     main_menu_text,
     settings_markup,
@@ -70,17 +66,6 @@ async def render_stats_screen(query: CallbackQuery, db: aiosqlite.Connection) ->
     )
 
 
-async def render_history_screen(query: CallbackQuery, db: aiosqlite.Connection, page: int) -> None:
-    repos = get_repos(db)
-    total = await repos["message"].count_all()
-    offset = (page - 1) * HISTORY_PAGE_SIZE
-    messages = await repos["message"].list_recent(limit=HISTORY_PAGE_SIZE, offset=offset)
-    await query.message.edit_text(
-        history_text(messages=messages, page=page, total=total),
-        reply_markup=history_markup(page=page, total=total),
-    )
-
-
 @router.message(CommandStart())
 async def cmd_start(message: Message, db: aiosqlite.Connection):
     await ensure_user(db, message)
@@ -112,12 +97,6 @@ async def menu_settings(query: CallbackQuery, db: aiosqlite.Connection):
 @router.callback_query(MenuCallback.filter(F.action == "stats"))
 async def menu_stats(query: CallbackQuery, db: aiosqlite.Connection):
     await render_stats_screen(query, db)
-    await query.answer()
-
-
-@router.callback_query(MenuCallback.filter(F.action == "history"))
-async def menu_history(query: CallbackQuery, db: aiosqlite.Connection):
-    await render_history_screen(query, db, page=1)
     await query.answer()
 
 
@@ -160,14 +139,6 @@ async def help_support(query: CallbackQuery):
 @router.callback_query(HelpCallback.filter(F.action == "back"))
 async def help_back(query: CallbackQuery):
     await query.message.edit_text(main_menu_text(), reply_markup=main_menu_markup())
-    await query.answer()
-
-
-@router.callback_query(HistoryCallback.filter())
-async def history_page(
-    query: CallbackQuery, callback_data: HistoryCallback, db: aiosqlite.Connection
-):
-    await render_history_screen(query, db, page=callback_data.page)
     await query.answer()
 
 

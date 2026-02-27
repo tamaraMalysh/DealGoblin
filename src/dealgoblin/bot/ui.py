@@ -5,14 +5,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from dealgoblin.bot.callbacks import (
     HelpCallback,
-    HistoryCallback,
     KeywordsCallback,
     MenuCallback,
     SettingsCallback,
 )
 
 KEYWORDS_PAGE_SIZE = 6
-HISTORY_PAGE_SIZE = 5
 
 
 def main_menu_text() -> str:
@@ -23,7 +21,6 @@ def main_menu_markup() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Настройки", callback_data=MenuCallback(action="settings"))
     builder.button(text="Статистика чатов", callback_data=MenuCallback(action="stats"))
-    builder.button(text="История публикаций", callback_data=MenuCallback(action="history"))
     builder.button(text="Помощь", callback_data=MenuCallback(action="help"))
     builder.adjust(1)
     return builder.as_markup()
@@ -145,27 +142,4 @@ def stats_text(sources_count: int, messages_count: int, last_24h_count: int) -> 
 def stats_markup() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="<< Назад", callback_data=MenuCallback(action="back"))
-    return builder.as_markup()
-
-
-def history_text(messages: list[dict], page: int, total: int) -> str:
-    if not messages:
-        return "📰 История публикаций\n\nПока нет сообщений."
-    lines = []
-    for item in messages:
-        snippet = (item.get("text_raw") or item.get("text_norm") or "")[:80]
-        link = item.get("link") or "без ссылки"
-        lines.append(f"- {snippet}\n  {link}")
-    pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
-    return "📰 История публикаций\n\n" + "\n".join(lines) + f"\n\nСтраница {page}/{pages}"
-
-
-def history_markup(page: int, total: int) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    if page > 1:
-        builder.button(text="◀️", callback_data=HistoryCallback(page=page - 1))
-    if page * HISTORY_PAGE_SIZE < total:
-        builder.button(text="▶️", callback_data=HistoryCallback(page=page + 1))
-    builder.button(text="<< Назад", callback_data=MenuCallback(action="back"))
-    builder.adjust(2, 1)
     return builder.as_markup()

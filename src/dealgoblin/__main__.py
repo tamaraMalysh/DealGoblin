@@ -121,7 +121,9 @@ async def _run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
             settings.telegram_api_hash,
             connection_retries=settings.telethon_connection_retries,
             retry_delay=settings.telethon_retry_delay_seconds,
-            auto_reconnect=True,
+            # Telethon's internal auto-reconnect can get stuck in a bad state
+            # during shutdown/restart races; supervisor restarts recover cleanly.
+            auto_reconnect=False,
         )
         await telethon.start()
         await ensure_user_session(telethon)

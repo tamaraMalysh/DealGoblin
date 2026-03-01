@@ -203,7 +203,7 @@ async def test_run_once_restarts_on_telethon_disconnect_error(patched_runtime):
     assert isinstance(exc_info.value.__cause__, ConnectionError)
     assert patched_runtime.fake_telethon_cls.last_kwargs["connection_retries"] == -1
     assert patched_runtime.fake_telethon_cls.last_kwargs["retry_delay"] == 2.5
-    assert patched_runtime.fake_telethon_cls.last_kwargs["auto_reconnect"] is True
+    assert patched_runtime.fake_telethon_cls.last_kwargs["auto_reconnect"] is False
     assert patched_runtime.fake_telethon_cls.last_instance.disconnect_called is True
     assert patched_runtime.fake_bot_cls.last_instance.session.closed is True
     assert patched_runtime.db.closed is True

@@ -65,9 +65,10 @@ docker compose run --rm dealgoblin \
 - First Telethon user-auth flow in Docker should be completed with `docker compose run --rm dealgoblin`; session files persist in `./data`.
 - Optional startup backfill depth is `SOURCE_BACKFILL_LIMIT` (default `100`).
 - Optional raw forwarding of every ingested message is `FORWARD_ALL_INGESTED=true` (to `OWNER_CHAT_ID`).
-- Telethon reconnect policy is configurable via `.env`:
+- Telethon startup connect retry policy is configurable via `.env`:
   - `TELETHON_CONNECTION_RETRIES` (default `-1`, effectively infinite)
   - `TELETHON_RETRY_DELAY_SECONDS` (default `1.0`)
+- Runtime reconnect recovery is handled by the supervisor restart loop.
 - Runtime supervisor restart backoff is configurable via `.env`:
   - `RUNTIME_RESTART_BASE_DELAY_SECONDS` (default `3.0`)
   - `RUNTIME_RESTART_MAX_DELAY_SECONDS` (default `60.0`)

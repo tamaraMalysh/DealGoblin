@@ -1,5 +1,6 @@
 import pytest
 
+from dealgoblin.ingest.normalize import normalize_text
 from dealgoblin.match.fts_query import build_fts_query, build_phrase_fts_query
 from dealgoblin.match.matcher import evaluate_message
 from dealgoblin.storage.db import init_db
@@ -19,13 +20,22 @@ def test_multiple_exclude():
     assert q == '"lamp*" NOT broken* NOT cracked*'
 
 
+def test_build_fts_query_lemmatizes_cyrillic_tokens():
+    q = build_fts_query(include=["стиральную", "машину"], exclude=["samsung"])
+    assert q == '"стиральный* машина*" NOT samsung*'
+
+
 def test_empty_include_returns_none():
     assert build_fts_query(include=[]) is None
 
 
 def test_phrase_builder_with_minus_words():
     q = build_phrase_fts_query("стиральная машина -lg -samsung")
-    assert q == '"стиральная* машина*" NOT lg NOT samsung*'
+    assert q == '"стиральный* машина*" NOT lg NOT samsung*'
+
+
+def test_phrase_builder_empty_input_returns_none():
+    assert build_phrase_fts_query('"-" !!!') is None
 
 
 # --- Matcher tests ---
@@ -89,16 +99,22 @@ async def test_phrase_query_order_and_adjacency(db):
     watch_repo = WatchRepo(db)
     user = await BotUserRepo(db).ensure(chat_id=4, tg_user_id=4)
     bad_order = await msg_repo.insert(
-        chat_id=1, message_id=10, text_raw="машина стиральная", text_norm="машина стиральная"
+        chat_id=1,
+        message_id=10,
+        text_raw="машина стиральная",
+        text_norm=normalize_text("машина стиральная"),
     )
     with_insert = await msg_repo.insert(
         chat_id=1,
         message_id=11,
         text_raw="стиральная узкая машина",
-        text_norm="стиральная узкая машина",
+        text_norm=normalize_text("стиральная узкая машина"),
     )
-    good = await msg_repo.insert(
-        chat_id=1, message_id=12, text_raw="стиральная машина", text_norm="стиральная машина"
+    inflected = await msg_repo.insert(
+        chat_id=1,
+        message_id=12,
+        text_raw="стиральную машину",
+        text_norm=normalize_text("стиральную машину"),
     )
 
     fts = build_phrase_fts_query("стиральная машина")
@@ -106,4 +122,29 @@ async def test_phrase_query_order_and_adjacency(db):
 
     assert await evaluate_message(db, bad_order, "машина стиральная") == []
     assert await evaluate_message(db, with_insert, "стиральная узкая машина") == []
-    assert len(await evaluate_message(db, good, "стиральная машина")) == 1
+    assert len(await evaluate_message(db, inflected, "стиральную машину")) == 1
+
+
+async def test_phrase_query_minus_words(db):
+    msg_repo = MessageRepo(db)
+    watch_repo = WatchRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=5, tg_user_id=5)
+
+    blocked = await msg_repo.insert(
+        chat_id=1,
+        message_id=20,
+        text_raw="стиральную машину samsung",
+        text_norm=normalize_text("стиральную машину samsung"),
+    )
+    allowed = await msg_repo.insert(
+        chat_id=1,
+        message_id=21,
+        text_raw="стиральную машину bosch",
+        text_norm=normalize_text("стиральную машину bosch"),
+    )
+
+    fts = build_phrase_fts_query("стиральная машина -samsung")
+    await watch_repo.add(user_id=user["id"], name="washer", fts_query=fts)
+
+    assert await evaluate_message(db, blocked, "стиральную машину samsung") == []
+    assert len(await evaluate_message(db, allowed, "стиральную машину bosch")) == 1

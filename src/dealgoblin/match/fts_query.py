@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
-_TOKEN_RE = re.compile(r"[A-Za-zА-Яа-я0-9]+", re.IGNORECASE)
+from dealgoblin.ingest.normalize import normalize_token
 
 
 @dataclass(slots=True)
@@ -13,11 +12,7 @@ class ParsedWatchQuery:
 
 
 def _normalize_token(token: str) -> str:
-    match = _TOKEN_RE.search(token.lower())
-    if not match:
-        return ""
-    cleaned = match.group(0).replace('"', "").replace(":", "").replace("*", "")
-    return cleaned
+    return normalize_token(token)
 
 
 def _as_prefix_token(token: str) -> str:

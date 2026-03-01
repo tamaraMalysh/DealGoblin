@@ -4,6 +4,12 @@ Async Telegram flea-market finder.
 
 DealGoblin ingests posts from allowlisted Telegram chats, indexes them in SQLite/FTS5, and provides search + alerting through a Telegram bot.
 
+## Search Semantics
+
+- Phrase queries match adjacent words in order.
+- Russian word forms are normalized via lemmatization (for example, `стиральная машина` also matches `стиральную машину`).
+- Minus-words exclude matches (for example, `стиральная машина -lg -samsung`).
+
 ## Requirements
 
 - Python `3.13+`

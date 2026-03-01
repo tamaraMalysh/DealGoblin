@@ -1,5 +1,6 @@
 import pytest
 
+from dealgoblin.ingest.normalize import normalize_text
 from dealgoblin.storage.db import init_db
 from dealgoblin.storage.repo import BotUserRepo, MatchEventRepo, MessageRepo, SourceRepo, WatchRepo
 
@@ -25,6 +26,46 @@ async def test_schema_tables_exist(db):
     assert "bot_users" in tables
     assert "match_events" in tables
     assert "messages_fts" in tables
+    assert "runtime_meta" in tables
+
+
+async def test_init_db_reindexes_text_norm_once_when_meta_missing(db_path):
+    conn = await init_db(db_path)
+    await conn.execute(
+        "INSERT INTO messages (chat_id, message_id, text_raw, text_norm) "
+        "VALUES (?, ?, ?, ?)",
+        (1, 1, "стиральную машину", "стиральную машину"),
+    )
+    await conn.execute("DELETE FROM runtime_meta WHERE key = 'text_normalization_version'")
+    await conn.commit()
+    await conn.close()
+
+    conn = await init_db(db_path)
+    async with conn.execute(
+        "SELECT text_norm FROM messages WHERE chat_id = 1 AND message_id = 1"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row[0] == normalize_text("стиральную машину")
+    async with conn.execute(
+        "SELECT value FROM runtime_meta WHERE key = 'text_normalization_version'"
+    ) as cur:
+        version_row = await cur.fetchone()
+    assert version_row is not None
+
+    await conn.execute(
+        "UPDATE messages SET text_norm = ? WHERE chat_id = ? AND message_id = ?",
+        ("стиральную машину", 1, 1),
+    )
+    await conn.commit()
+    await conn.close()
+
+    conn = await init_db(db_path)
+    async with conn.execute(
+        "SELECT text_norm FROM messages WHERE chat_id = 1 AND message_id = 1"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row[0] == "стиральную машину"
+    await conn.close()
 
 
 async def test_fts_sync_on_insert(db):

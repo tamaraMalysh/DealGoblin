@@ -18,6 +18,10 @@ def test_normalize_text():
     assert normalize_text("  Vintage  LAMP  500р  ") == "vintage lamp 500р"
 
 
+def test_normalize_text_lemmatizes_cyrillic_words():
+    assert normalize_text("Стиральную машину LG") == "стиральный машина lg"
+
+
 def test_normalize_text_none():
     assert normalize_text(None) is None
 

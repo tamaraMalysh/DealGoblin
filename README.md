@@ -33,6 +33,7 @@ Copy `.env.example` to `.env` and fill in required values:
 - `BOT_TOKEN`
 - `OWNER_CHAT_ID`
 - `SOURCE_CHAT_IDS` (comma-separated Telegram chat IDs)
+- `DUPLICATE_SUPPRESSION_DAYS` (optional, default `14`; suppresses cross-chat duplicate alerts per watch)
 
 ## Quality Checks
 

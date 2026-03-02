@@ -1,5 +1,6 @@
 import pytest
 
+from dealgoblin.ingest.dedupe import build_dedupe_key, normalize_author_name
 from dealgoblin.ingest.normalize import normalize_text
 from dealgoblin.match.fts_query import build_fts_query, build_phrase_fts_query
 from dealgoblin.match.matcher import evaluate_message
@@ -148,3 +149,142 @@ async def test_phrase_query_minus_words(db):
 
     assert await evaluate_message(db, blocked, "стиральную машину samsung") == []
     assert len(await evaluate_message(db, allowed, "стиральную машину bosch")) == 1
+
+
+async def test_matcher_suppresses_cross_chat_duplicate_for_same_author(db):
+    msg_repo = MessageRepo(db)
+    watch_repo = WatchRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=6, tg_user_id=6)
+    await watch_repo.add(user_id=user["id"], name="lamps", fts_query="lamp")
+
+    dedupe_key = build_dedupe_key("lamp", author_id=100, author_name_norm=None)
+    rowid1 = await msg_repo.insert(
+        chat_id=101,
+        message_id=1,
+        text_raw="lamp",
+        text_norm="lamp",
+        author_id=100,
+        dedupe_key=dedupe_key,
+    )
+    rowid2 = await msg_repo.insert(
+        chat_id=202,
+        message_id=1,
+        text_raw="lamp",
+        text_norm="lamp",
+        author_id=100,
+        dedupe_key=dedupe_key,
+    )
+
+    assert len(await evaluate_message(db, rowid1, "lamp")) == 1
+    assert len(await evaluate_message(db, rowid2, "lamp")) == 0
+
+
+async def test_matcher_allows_same_text_from_different_authors(db):
+    msg_repo = MessageRepo(db)
+    watch_repo = WatchRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=7, tg_user_id=7)
+    await watch_repo.add(user_id=user["id"], name="chairs", fts_query="chair")
+
+    rowid1 = await msg_repo.insert(
+        chat_id=101,
+        message_id=2,
+        text_raw="chair",
+        text_norm="chair",
+        author_id=100,
+        dedupe_key=build_dedupe_key("chair", author_id=100, author_name_norm=None),
+    )
+    rowid2 = await msg_repo.insert(
+        chat_id=202,
+        message_id=2,
+        text_raw="chair",
+        text_norm="chair",
+        author_id=200,
+        dedupe_key=build_dedupe_key("chair", author_id=200, author_name_norm=None),
+    )
+
+    assert len(await evaluate_message(db, rowid1, "chair")) == 1
+    assert len(await evaluate_message(db, rowid2, "chair")) == 1
+
+
+async def test_matcher_uses_post_author_fallback_when_sender_id_missing(db):
+    msg_repo = MessageRepo(db)
+    watch_repo = WatchRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=8, tg_user_id=8)
+    await watch_repo.add(user_id=user["id"], name="tables", fts_query="table")
+
+    author_name_norm = normalize_author_name("Seller Name")
+    dedupe_key = build_dedupe_key("table", author_id=None, author_name_norm=author_name_norm)
+    rowid1 = await msg_repo.insert(
+        chat_id=303,
+        message_id=1,
+        text_raw="table",
+        text_norm="table",
+        author_name_norm=author_name_norm,
+        dedupe_key=dedupe_key,
+    )
+    rowid2 = await msg_repo.insert(
+        chat_id=404,
+        message_id=1,
+        text_raw="table",
+        text_norm="table",
+        author_name_norm=author_name_norm,
+        dedupe_key=dedupe_key,
+    )
+
+    assert len(await evaluate_message(db, rowid1, "table")) == 1
+    assert len(await evaluate_message(db, rowid2, "table")) == 0
+
+
+async def test_matcher_does_not_suppress_when_author_missing(db):
+    msg_repo = MessageRepo(db)
+    watch_repo = WatchRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=9, tg_user_id=9)
+    await watch_repo.add(user_id=user["id"], name="sofas", fts_query="sofa")
+
+    rowid1 = await msg_repo.insert(
+        chat_id=505,
+        message_id=1,
+        text_raw="sofa",
+        text_norm="sofa",
+        dedupe_key=None,
+    )
+    rowid2 = await msg_repo.insert(
+        chat_id=606,
+        message_id=1,
+        text_raw="sofa",
+        text_norm="sofa",
+        dedupe_key=None,
+    )
+
+    assert len(await evaluate_message(db, rowid1, "sofa")) == 1
+    assert len(await evaluate_message(db, rowid2, "sofa")) == 1
+
+
+async def test_matcher_allows_duplicate_after_suppression_window_expires(db):
+    msg_repo = MessageRepo(db)
+    watch_repo = WatchRepo(db)
+    user = await BotUserRepo(db).ensure(chat_id=10, tg_user_id=10)
+    await watch_repo.add(user_id=user["id"], name="desks", fts_query="desk")
+
+    dedupe_key = build_dedupe_key("desk", author_id=777, author_name_norm=None)
+    rowid1 = await msg_repo.insert(
+        chat_id=707,
+        message_id=1,
+        text_raw="desk",
+        text_norm="desk",
+        author_id=777,
+        dedupe_key=dedupe_key,
+    )
+    rowid2 = await msg_repo.insert(
+        chat_id=808,
+        message_id=1,
+        text_raw="desk",
+        text_norm="desk",
+        author_id=777,
+        dedupe_key=dedupe_key,
+    )
+
+    assert len(await evaluate_message(db, rowid1, "desk", duplicate_suppression_days=14)) == 1
+    await db.execute("UPDATE match_events SET created_at = datetime('now', '-20 days')")
+    await db.commit()
+    assert len(await evaluate_message(db, rowid2, "desk", duplicate_suppression_days=14)) == 1

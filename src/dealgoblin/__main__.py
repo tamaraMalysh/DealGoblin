@@ -144,7 +144,12 @@ async def _run_once(
         dp["db"] = db
 
         async def on_ingest(rowid: int, text_norm: str):
-            await evaluate_message(db, rowid, text_norm)
+            await evaluate_message(
+                db,
+                rowid,
+                text_norm,
+                duplicate_suppression_days=settings.duplicate_suppression_days,
+            )
             if not settings.forward_all_ingested:
                 return
 

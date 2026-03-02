@@ -116,14 +116,29 @@ class MessageRepo:
         message_id: int,
         text_raw: str | None,
         text_norm: str | None,
+        author_id: int | None = None,
+        author_name_norm: str | None = None,
+        dedupe_key: str | None = None,
         link: str | None = None,
         posted_at: str | None = None,
     ) -> int | None:
         try:
             async with self._db.execute(
-                "INSERT INTO messages (chat_id, message_id, text_raw, text_norm, link, posted_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (chat_id, message_id, text_raw, text_norm, link, posted_at),
+                "INSERT INTO messages ("
+                "chat_id, message_id, text_raw, text_norm, author_id, author_name_norm, "
+                "dedupe_key, link, posted_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    chat_id,
+                    message_id,
+                    text_raw,
+                    text_norm,
+                    author_id,
+                    author_name_norm,
+                    dedupe_key,
+                    link,
+                    posted_at,
+                ),
             ) as cur:
                 rowid = cur.lastrowid
             await self._db.commit()
@@ -280,6 +295,27 @@ class MatchEventRepo:
         ) as cur:
             row = await cur.fetchone()
             return int(row[0])
+
+    async def has_recent_duplicate(
+        self,
+        watch_id: int,
+        dedupe_key: str,
+        duplicate_suppression_days: int,
+    ) -> bool:
+        if duplicate_suppression_days < 1:
+            return False
+        since = f"-{duplicate_suppression_days} days"
+        async with self._db.execute(
+            "SELECT 1 FROM match_events me "
+            "JOIN messages m ON m.rowid = me.message_rowid "
+            "WHERE me.watch_id = ? "
+            "AND m.dedupe_key = ? "
+            "AND me.created_at >= datetime('now', ?) "
+            "LIMIT 1",
+            (watch_id, dedupe_key, since),
+        ) as cur:
+            row = await cur.fetchone()
+            return row is not None
 
     async def mark_notified(self, event_id: int):
         await self._db.execute(

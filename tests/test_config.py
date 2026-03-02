@@ -17,6 +17,7 @@ def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("RUNTIME_RESTART_MAX_DELAY_SECONDS", "20.0")
     monkeypatch.setenv("BOT_HEALTHCHECK_INTERVAL_SECONDS", "6.0")
     monkeypatch.setenv("BOT_HEALTHCHECK_FAILURE_THRESHOLD", "3")
+    monkeypatch.setenv("DUPLICATE_SUPPRESSION_DAYS", "21")
     s = Settings(_env_file=None)
     assert s.telegram_api_id == 123456
     assert s.telegram_api_hash == "abcdef"
@@ -31,6 +32,7 @@ def test_settings_from_env(monkeypatch):
     assert s.runtime_restart_max_delay_seconds == 20.0
     assert s.bot_healthcheck_interval_seconds == 6.0
     assert s.bot_healthcheck_failure_threshold == 3
+    assert s.duplicate_suppression_days == 21
 
 
 def test_settings_defaults(monkeypatch):
@@ -47,6 +49,7 @@ def test_settings_defaults(monkeypatch):
     monkeypatch.delenv("RUNTIME_RESTART_MAX_DELAY_SECONDS", raising=False)
     monkeypatch.delenv("BOT_HEALTHCHECK_INTERVAL_SECONDS", raising=False)
     monkeypatch.delenv("BOT_HEALTHCHECK_FAILURE_THRESHOLD", raising=False)
+    monkeypatch.delenv("DUPLICATE_SUPPRESSION_DAYS", raising=False)
     s = Settings(_env_file=None)
     assert s.db_path.endswith("dealgoblin.sqlite3")
     assert s.session_path.endswith("telethon.session")
@@ -59,6 +62,7 @@ def test_settings_defaults(monkeypatch):
     assert s.runtime_restart_max_delay_seconds == 30.0
     assert s.bot_healthcheck_interval_seconds == 15.0
     assert s.bot_healthcheck_failure_threshold == 8
+    assert s.duplicate_suppression_days == 14
 
 
 def test_settings_invalid_source_chat_ids(monkeypatch):
@@ -79,6 +83,7 @@ def test_settings_invalid_source_chat_ids(monkeypatch):
         ("RUNTIME_RESTART_MAX_DELAY_SECONDS", "0", "runtime_restart_max_delay_seconds"),
         ("BOT_HEALTHCHECK_INTERVAL_SECONDS", "0", "bot_healthcheck_interval_seconds"),
         ("BOT_HEALTHCHECK_FAILURE_THRESHOLD", "0", "bot_healthcheck_failure_threshold"),
+        ("DUPLICATE_SUPPRESSION_DAYS", "0", "duplicate_suppression_days"),
     ],
 )
 def test_settings_invalid_resilience_values(monkeypatch, env_name, env_value, match):

@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from dealgoblin.ingest.normalize import normalize_text
@@ -27,6 +29,43 @@ async def test_schema_tables_exist(db):
     assert "match_events" in tables
     assert "messages_fts" in tables
     assert "runtime_meta" in tables
+
+
+async def test_init_db_adds_dedupe_columns_and_indexes_to_legacy_messages(db_path):
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE messages ("
+        "rowid INTEGER PRIMARY KEY, "
+        "chat_id INTEGER NOT NULL, "
+        "message_id INTEGER NOT NULL, "
+        "text_raw TEXT, "
+        "text_norm TEXT, "
+        "link TEXT, "
+        "posted_at TEXT, "
+        "ingested_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "UNIQUE(chat_id, message_id)"
+        ")"
+    )
+    conn.commit()
+    conn.close()
+
+    upgraded = await init_db(db_path)
+
+    async with upgraded.execute("PRAGMA table_info(messages)") as cur:
+        column_names = {row[1] for row in await cur.fetchall()}
+    assert "author_id" in column_names
+    assert "author_name_norm" in column_names
+    assert "dedupe_key" in column_names
+
+    async with upgraded.execute("PRAGMA index_list(messages)") as cur:
+        message_indexes = {row[1] for row in await cur.fetchall()}
+    assert "idx_messages_dedupe_key" in message_indexes
+
+    async with upgraded.execute("PRAGMA index_list(match_events)") as cur:
+        match_event_indexes = {row[1] for row in await cur.fetchall()}
+    assert "idx_match_events_watch_created_at" in match_event_indexes
+
+    await upgraded.close()
 
 
 async def test_init_db_reindexes_text_norm_once_when_meta_missing(db_path):
@@ -158,6 +197,25 @@ async def test_message_insert_and_search(db):
     results = await repo.search_fts("lamp", limit=5)
     assert len(results) == 1
     assert results[0]["link"] == "https://t.me/flea/10"
+
+
+async def test_message_insert_persists_dedupe_fields(db):
+    repo = MessageRepo(db)
+    rowid = await repo.insert(
+        chat_id=1,
+        message_id=11,
+        text_raw="Vintage Lamp 500р",
+        text_norm="vintage lamp 500р",
+        author_id=123456,
+        author_name_norm="seller name",
+        dedupe_key="abc123",
+    )
+    assert rowid is not None
+    row = await repo.get_by_rowid(rowid)
+    assert row is not None
+    assert row["author_id"] == 123456
+    assert row["author_name_norm"] == "seller name"
+    assert row["dedupe_key"] == "abc123"
 
 
 async def test_message_insert_duplicate_returns_none(db):

@@ -75,3 +75,5 @@ docker compose run --rm dealgoblin \
 - Bot API health watchdog is configurable via `.env`:
   - `BOT_HEALTHCHECK_INTERVAL_SECONDS` (default `15.0`)
   - `BOT_HEALTHCHECK_FAILURE_THRESHOLD` (default `8`)
+- Match alert duplicate suppression window is configurable via `.env`:
+  - `DUPLICATE_SUPPRESSION_DAYS` (default `14`)

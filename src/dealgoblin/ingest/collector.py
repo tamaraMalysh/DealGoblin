@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 
 from telethon import TelegramClient, events
 
+from dealgoblin.ingest.dedupe import build_dedupe_key, normalize_author_name
 from dealgoblin.ingest.links import build_message_link
 from dealgoblin.ingest.normalize import normalize_text
 from dealgoblin.storage.repo import MessageRepo, SourceRepo
@@ -72,12 +73,23 @@ class Collector:
             return None
         link = build_message_link(username, chat_id, message.id)
         text_norm = normalize_text(message.text)
+        raw_author_id = getattr(message, "sender_id", None)
+        author_id = int(raw_author_id) if isinstance(raw_author_id, int) else None
+        author_name_norm = normalize_author_name(getattr(message, "post_author", None))
+        dedupe_key = build_dedupe_key(
+            text_norm=text_norm,
+            author_id=author_id,
+            author_name_norm=author_name_norm,
+        )
         posted_at = message.date.isoformat() if message.date else None
         rowid = await self._msg_repo.insert(
             chat_id=chat_id,
             message_id=message.id,
             text_raw=message.text,
             text_norm=text_norm,
+            author_id=author_id,
+            author_name_norm=author_name_norm,
+            dedupe_key=dedupe_key,
             link=link,
             posted_at=posted_at,
         )

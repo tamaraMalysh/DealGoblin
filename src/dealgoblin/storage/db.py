@@ -37,6 +37,27 @@ async def _set_runtime_meta(conn: aiosqlite.Connection, key: str, value: str) ->
     )
 
 
+async def _ensure_message_dedupe_columns(conn: aiosqlite.Connection) -> None:
+    async with conn.execute("PRAGMA table_info(messages)") as cur:
+        rows = await cur.fetchall()
+    existing_columns = {str(row[1]) for row in rows}
+
+    if "author_id" not in existing_columns:
+        await conn.execute("ALTER TABLE messages ADD COLUMN author_id INTEGER")
+    if "author_name_norm" not in existing_columns:
+        await conn.execute("ALTER TABLE messages ADD COLUMN author_name_norm TEXT")
+    if "dedupe_key" not in existing_columns:
+        await conn.execute("ALTER TABLE messages ADD COLUMN dedupe_key TEXT")
+
+
+async def _ensure_runtime_indexes(conn: aiosqlite.Connection) -> None:
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_dedupe_key ON messages(dedupe_key)")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_match_events_watch_created_at "
+        "ON match_events(watch_id, created_at)"
+    )
+
+
 async def _reindex_messages_if_needed(conn: aiosqlite.Connection) -> None:
     current_version = await _get_runtime_meta(conn, _META_KEY_TEXT_NORMALIZATION_VERSION)
     if current_version == TEXT_NORMALIZATION_VERSION:
@@ -93,6 +114,8 @@ async def init_db(path: str) -> aiosqlite.Connection:
     conn = await aiosqlite.connect(path)
     await conn.executescript(SCHEMA_SQL)
     await _ensure_runtime_meta_table(conn)
+    await _ensure_message_dedupe_columns(conn)
+    await _ensure_runtime_indexes(conn)
     await conn.execute("PRAGMA journal_mode=WAL")
     await conn.execute("PRAGMA foreign_keys=ON")
     await _reindex_messages_if_needed(conn)

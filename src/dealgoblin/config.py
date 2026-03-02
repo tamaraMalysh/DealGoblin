@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     runtime_restart_max_delay_seconds: float = 30.0
     bot_healthcheck_interval_seconds: float = 15.0
     bot_healthcheck_failure_threshold: int = 8
+    duplicate_suppression_days: int = 14
 
     @field_validator("source_chat_ids", mode="before")
     @classmethod
@@ -59,6 +60,13 @@ class Settings(BaseSettings):
     @field_validator("bot_healthcheck_failure_threshold")
     @classmethod
     def _validate_healthcheck_threshold(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("must be greater than or equal to 1")
+        return value
+
+    @field_validator("duplicate_suppression_days")
+    @classmethod
+    def _validate_duplicate_suppression_days(cls, value: int) -> int:
         if value < 1:
             raise ValueError("must be greater than or equal to 1")
         return value

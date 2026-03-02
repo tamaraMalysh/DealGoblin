@@ -100,11 +100,14 @@ async def _configure_bot_menu(bot: Bot) -> None:
     await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
 
 
-async def _run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
+async def _run_once(
+    settings: Settings,
+    stop_event: asyncio.Event,
+    dp: Dispatcher,
+) -> bool:
     db = None
     telethon = None
     bot = None
-    dp = None
     notifier = None
     notifier_task = None
     polling_task = None
@@ -138,8 +141,6 @@ async def _run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
 
         bot = Bot(token=settings.bot_token)
         await _configure_bot_menu(bot)
-        dp = Dispatcher()
-        dp.include_router(router)
         dp["db"] = db
 
         async def on_ingest(rowid: int, text_norm: str):
@@ -218,11 +219,10 @@ async def _run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
         await _cancel_and_wait(polling_task)
         await _cancel_and_wait(notifier_task)
 
-        if dp is not None:
-            try:
-                await asyncio.wait_for(dp.stop_polling(), timeout=5)
-            except Exception as e:
-                logger.debug("Polling stop raised during shutdown: %s", e)
+        try:
+            await asyncio.wait_for(dp.stop_polling(), timeout=5)
+        except Exception as e:
+            logger.debug("Polling stop raised during shutdown: %s", e)
 
         if telethon is not None:
             try:
@@ -240,11 +240,17 @@ async def run_supervised() -> None:
     settings = Settings()
     stop_event = asyncio.Event()
     _install_signal_handlers(stop_event)
+    dp = Dispatcher()
+    dp.include_router(router)
 
     restart_delay = settings.runtime_restart_base_delay_seconds
     while True:
         try:
-            should_stop = await _run_once(settings=settings, stop_event=stop_event)
+            should_stop = await _run_once(
+                settings=settings,
+                stop_event=stop_event,
+                dp=dp,
+            )
             if should_stop:
                 logger.info("Supervisor received stop signal; exiting")
                 return

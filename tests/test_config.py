@@ -56,7 +56,7 @@ def test_settings_defaults(monkeypatch):
     assert s.telethon_connection_retries == -1
     assert s.telethon_retry_delay_seconds == 1.0
     assert s.runtime_restart_base_delay_seconds == 3.0
-    assert s.runtime_restart_max_delay_seconds == 60.0
+    assert s.runtime_restart_max_delay_seconds == 30.0
     assert s.bot_healthcheck_interval_seconds == 15.0
     assert s.bot_healthcheck_failure_threshold == 8
 

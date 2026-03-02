@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     telethon_connection_retries: int = -1
     telethon_retry_delay_seconds: float = 1.0
     runtime_restart_base_delay_seconds: float = 3.0
-    runtime_restart_max_delay_seconds: float = 60.0
+    runtime_restart_max_delay_seconds: float = 30.0
     bot_healthcheck_interval_seconds: float = 15.0
     bot_healthcheck_failure_threshold: int = 8
 

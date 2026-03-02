@@ -71,7 +71,7 @@ docker compose run --rm dealgoblin \
 - Runtime reconnect recovery is handled by the supervisor restart loop.
 - Runtime supervisor restart backoff is configurable via `.env`:
   - `RUNTIME_RESTART_BASE_DELAY_SECONDS` (default `3.0`)
-  - `RUNTIME_RESTART_MAX_DELAY_SECONDS` (default `60.0`)
+  - `RUNTIME_RESTART_MAX_DELAY_SECONDS` (default `30.0`)
 - Bot API health watchdog is configurable via `.env`:
   - `BOT_HEALTHCHECK_INTERVAL_SECONDS` (default `15.0`)
   - `BOT_HEALTHCHECK_FAILURE_THRESHOLD` (default `8`)

@@ -196,9 +196,10 @@ def patched_runtime(monkeypatch):
 async def test_run_once_restarts_on_telethon_disconnect_error(patched_runtime):
     patched_runtime.fake_telethon_cls.disconnect_exception = ConnectionError("dns failure")
     settings = _make_settings(telethon_connection_retries=-1, telethon_retry_delay_seconds=2.5)
+    dp = runtime.Dispatcher()
 
     with pytest.raises(runtime.RuntimeRestartError, match="telethon-disconnected") as exc_info:
-        await runtime._run_once(settings=settings, stop_event=asyncio.Event())
+        await runtime._run_once(settings=settings, stop_event=asyncio.Event(), dp=dp)
 
     assert isinstance(exc_info.value.__cause__, ConnectionError)
     assert patched_runtime.fake_telethon_cls.last_kwargs["connection_retries"] == -1
@@ -212,9 +213,10 @@ async def test_run_once_restarts_on_telethon_disconnect_error(patched_runtime):
 async def test_run_once_restarts_on_polling_failure(patched_runtime):
     patched_runtime.fake_dispatcher_cls.polling_exception = RuntimeError("polling exploded")
     settings = _make_settings()
+    dp = runtime.Dispatcher()
 
     with pytest.raises(runtime.RuntimeRestartError, match="polling") as exc_info:
-        await runtime._run_once(settings=settings, stop_event=asyncio.Event())
+        await runtime._run_once(settings=settings, stop_event=asyncio.Event(), dp=dp)
 
     assert isinstance(exc_info.value.__cause__, RuntimeError)
     assert patched_runtime.fake_telethon_cls.last_instance.disconnect_called is True
@@ -225,9 +227,10 @@ async def test_run_once_restarts_on_polling_failure(patched_runtime):
 async def test_run_once_configures_private_menu_button_and_commands(patched_runtime):
     patched_runtime.fake_dispatcher_cls.polling_exception = RuntimeError("polling exploded")
     settings = _make_settings()
+    dp = runtime.Dispatcher()
 
     with pytest.raises(runtime.RuntimeRestartError, match="polling"):
-        await runtime._run_once(settings=settings, stop_event=asyncio.Event())
+        await runtime._run_once(settings=settings, stop_event=asyncio.Event(), dp=dp)
 
     bot = patched_runtime.fake_bot_cls.last_instance
     assert bot is not None
@@ -254,8 +257,12 @@ async def test_run_supervised_retries_with_capped_backoff(monkeypatch):
     attempts = {"count": 0}
     sleep_delays: list[float] = []
 
-    async def fake_run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
-        del settings, stop_event
+    class FakeDispatcher:
+        def include_router(self, _router):
+            return None
+
+    async def fake_run_once(settings: Settings, stop_event: asyncio.Event, dp) -> bool:
+        del settings, stop_event, dp
         attempts["count"] += 1
         if attempts["count"] < 3:
             raise RuntimeError("transient failure")
@@ -266,6 +273,7 @@ async def test_run_supervised_retries_with_capped_backoff(monkeypatch):
 
     monkeypatch.setattr(runtime, "Settings", lambda: settings)
     monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
+    monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
     monkeypatch.setattr(runtime, "_run_once", fake_run_once)
     monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
 
@@ -279,8 +287,12 @@ async def test_run_supervised_stops_without_restart_sleep(monkeypatch):
     settings = _make_settings()
     attempts = {"count": 0}
 
-    async def fake_run_once(settings: Settings, stop_event: asyncio.Event) -> bool:
-        del settings, stop_event
+    class FakeDispatcher:
+        def include_router(self, _router):
+            return None
+
+    async def fake_run_once(settings: Settings, stop_event: asyncio.Event, dp) -> bool:
+        del settings, stop_event, dp
         attempts["count"] += 1
         return True
 
@@ -289,9 +301,53 @@ async def test_run_supervised_stops_without_restart_sleep(monkeypatch):
 
     monkeypatch.setattr(runtime, "Settings", lambda: settings)
     monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
+    monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
     monkeypatch.setattr(runtime, "_run_once", fake_run_once)
     monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
 
     await runtime.run_supervised()
 
     assert attempts["count"] == 1
+
+
+async def test_run_supervised_attaches_router_once_across_retries(monkeypatch):
+    settings = _make_settings(
+        runtime_restart_base_delay_seconds=1.0,
+        runtime_restart_max_delay_seconds=10.0,
+    )
+    attempts = {"count": 0}
+    seen_dp_ids: list[int] = []
+
+    class FakeDispatcher:
+        instances_created = 0
+        include_router_calls = 0
+
+        def __init__(self):
+            type(self).instances_created += 1
+
+        def include_router(self, _router):
+            type(self).include_router_calls += 1
+
+    async def fake_run_once(settings: Settings, stop_event: asyncio.Event, dp) -> bool:
+        del settings, stop_event
+        attempts["count"] += 1
+        seen_dp_ids.append(id(dp))
+        if attempts["count"] < 3:
+            raise RuntimeError("transient failure")
+        return True
+
+    async def fake_sleep(_delay: float):
+        return None
+
+    monkeypatch.setattr(runtime, "Settings", lambda: settings)
+    monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
+    monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "_run_once", fake_run_once)
+    monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
+
+    await runtime.run_supervised()
+
+    assert attempts["count"] == 3
+    assert FakeDispatcher.instances_created == 1
+    assert FakeDispatcher.include_router_calls == 1
+    assert len(set(seen_dp_ids)) == 1

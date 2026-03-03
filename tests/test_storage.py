@@ -71,8 +71,7 @@ async def test_init_db_adds_dedupe_columns_and_indexes_to_legacy_messages(db_pat
 async def test_init_db_reindexes_text_norm_once_when_meta_missing(db_path):
     conn = await init_db(db_path)
     await conn.execute(
-        "INSERT INTO messages (chat_id, message_id, text_raw, text_norm) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT INTO messages (chat_id, message_id, text_raw, text_norm) VALUES (?, ?, ?, ?)",
         (1, 1, "стиральную машину", "стиральную машину"),
     )
     await conn.execute("DELETE FROM runtime_meta WHERE key = 'text_normalization_version'")

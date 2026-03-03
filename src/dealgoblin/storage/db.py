@@ -16,10 +16,7 @@ _REINDEX_BATCH_SIZE = 500
 
 async def _ensure_runtime_meta_table(conn: aiosqlite.Connection) -> None:
     await conn.execute(
-        "CREATE TABLE IF NOT EXISTS runtime_meta ("
-        "key TEXT PRIMARY KEY, "
-        "value TEXT NOT NULL"
-        ")"
+        "CREATE TABLE IF NOT EXISTS runtime_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
     )
 
 

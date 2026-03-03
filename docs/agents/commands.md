@@ -63,6 +63,7 @@ docker compose run --rm dealgoblin \
 - Start from `.env.example` when creating `.env`.
 - Docker runtime expects `.env` for secrets/config and mounts `./data` to persist SQLite + Telethon session files.
 - First Telethon user-auth flow in Docker should be completed with `docker compose run --rm dealgoblin`; session files persist in `./data`.
+- Never run `docker compose run --rm dealgoblin` concurrently with `docker compose up -d`; long-polling bots must run as a single active instance per token.
 - Optional startup backfill depth is `SOURCE_BACKFILL_LIMIT` (default `100`).
 - Optional raw forwarding of every ingested message is `FORWARD_ALL_INGESTED=true` (to `OWNER_CHAT_ID`).
 - Telethon startup connect retry policy is configurable via `.env`:
@@ -72,6 +73,8 @@ docker compose run --rm dealgoblin \
 - Runtime supervisor restart backoff is configurable via `.env`:
   - `RUNTIME_RESTART_BASE_DELAY_SECONDS` (default `3.0`)
   - `RUNTIME_RESTART_MAX_DELAY_SECONDS` (default `30.0`)
+- Runtime single-instance lock path is configurable via `.env`:
+  - `RUNTIME_LOCK_PATH` (default `data/runtime.lock`)
 - Bot API health watchdog is configurable via `.env`:
   - `BOT_HEALTHCHECK_INTERVAL_SECONDS` (default `15.0`)
   - `BOT_HEALTHCHECK_FAILURE_THRESHOLD` (default `8`)

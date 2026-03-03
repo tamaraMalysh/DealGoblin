@@ -15,6 +15,7 @@ def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("TELETHON_RETRY_DELAY_SECONDS", "2.5")
     monkeypatch.setenv("RUNTIME_RESTART_BASE_DELAY_SECONDS", "4.0")
     monkeypatch.setenv("RUNTIME_RESTART_MAX_DELAY_SECONDS", "20.0")
+    monkeypatch.setenv("RUNTIME_LOCK_PATH", "/tmp/dealgoblin-runtime.lock")
     monkeypatch.setenv("BOT_HEALTHCHECK_INTERVAL_SECONDS", "6.0")
     monkeypatch.setenv("BOT_HEALTHCHECK_FAILURE_THRESHOLD", "3")
     monkeypatch.setenv("DUPLICATE_SUPPRESSION_DAYS", "21")
@@ -30,6 +31,7 @@ def test_settings_from_env(monkeypatch):
     assert s.telethon_retry_delay_seconds == 2.5
     assert s.runtime_restart_base_delay_seconds == 4.0
     assert s.runtime_restart_max_delay_seconds == 20.0
+    assert s.runtime_lock_path == "/tmp/dealgoblin-runtime.lock"
     assert s.bot_healthcheck_interval_seconds == 6.0
     assert s.bot_healthcheck_failure_threshold == 3
     assert s.duplicate_suppression_days == 21
@@ -47,6 +49,7 @@ def test_settings_defaults(monkeypatch):
     monkeypatch.delenv("TELETHON_RETRY_DELAY_SECONDS", raising=False)
     monkeypatch.delenv("RUNTIME_RESTART_BASE_DELAY_SECONDS", raising=False)
     monkeypatch.delenv("RUNTIME_RESTART_MAX_DELAY_SECONDS", raising=False)
+    monkeypatch.delenv("RUNTIME_LOCK_PATH", raising=False)
     monkeypatch.delenv("BOT_HEALTHCHECK_INTERVAL_SECONDS", raising=False)
     monkeypatch.delenv("BOT_HEALTHCHECK_FAILURE_THRESHOLD", raising=False)
     monkeypatch.delenv("DUPLICATE_SUPPRESSION_DAYS", raising=False)
@@ -60,6 +63,7 @@ def test_settings_defaults(monkeypatch):
     assert s.telethon_retry_delay_seconds == 1.0
     assert s.runtime_restart_base_delay_seconds == 3.0
     assert s.runtime_restart_max_delay_seconds == 30.0
+    assert s.runtime_lock_path.endswith("runtime.lock")
     assert s.bot_healthcheck_interval_seconds == 15.0
     assert s.bot_healthcheck_failure_threshold == 8
     assert s.duplicate_suppression_days == 14

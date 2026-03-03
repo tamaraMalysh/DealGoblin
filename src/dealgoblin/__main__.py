@@ -15,6 +15,7 @@ from dealgoblin.config import Settings
 from dealgoblin.ingest.collector import Collector
 from dealgoblin.ingest.source_sync import sync_sources_from_env
 from dealgoblin.match.matcher import evaluate_message
+from dealgoblin.runtime_lock import RuntimeInstanceLockedError, acquire_runtime_lock
 from dealgoblin.storage.db import init_db
 from dealgoblin.storage.repo import MessageRepo, SourceRepo
 from dealgoblin.telethon_auth import ensure_user_session
@@ -61,6 +62,38 @@ async def _cancel_and_wait(task: asyncio.Task[object] | None) -> None:
 
 async def _monitor_telethon_disconnected(client: TelegramClient) -> None:
     await client.disconnected
+
+
+async def _shutdown_polling(
+    dp: Dispatcher,
+    polling_task: asyncio.Task[object] | None,
+    timeout_seconds: float = 5.0,
+) -> None:
+    if polling_task is None:
+        return
+
+    try:
+        await asyncio.wait_for(dp.stop_polling(), timeout=timeout_seconds)
+    except RuntimeError as exc:
+        logger.debug("Polling stop skipped during shutdown: %s", exc)
+    except Exception:
+        logger.debug("Polling stop raised during shutdown", exc_info=True)
+
+    try:
+        await asyncio.wait_for(asyncio.shield(polling_task), timeout=timeout_seconds)
+        return
+    except TimeoutError:
+        logger.warning(
+            "Polling did not stop gracefully in %.1f second(s); cancelling",
+            timeout_seconds,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.debug("Polling task ended with exception during shutdown", exc_info=True)
+        return
+
+    await _cancel_and_wait(polling_task)
 
 
 async def _bot_healthcheck_loop(
@@ -172,7 +205,11 @@ async def _run_once(
         notifier = Notifier(bot=bot, db=db)
         notifier_task = asyncio.create_task(notifier.start(), name="notifier")
         polling_task = asyncio.create_task(
-            dp.start_polling(bot, handle_signals=False),
+            dp.start_polling(
+                bot,
+                handle_signals=False,
+                close_bot_session=False,
+            ),
             name="polling",
         )
         telethon_disconnected_task = asyncio.create_task(
@@ -218,16 +255,11 @@ async def _run_once(
         logger.info("Shutting down runtime iteration...")
         if notifier is not None:
             await notifier.stop()
+        await _shutdown_polling(dp=dp, polling_task=polling_task)
         await _cancel_and_wait(stop_wait_task)
         await _cancel_and_wait(healthcheck_task)
         await _cancel_and_wait(telethon_disconnected_task)
-        await _cancel_and_wait(polling_task)
         await _cancel_and_wait(notifier_task)
-
-        try:
-            await asyncio.wait_for(dp.stop_polling(), timeout=5)
-        except Exception as e:
-            logger.debug("Polling stop raised during shutdown: %s", e)
 
         if telethon is not None:
             try:
@@ -243,37 +275,43 @@ async def _run_once(
 
 async def run_supervised() -> None:
     settings = Settings()
+    runtime_lock = acquire_runtime_lock(settings.runtime_lock_path)
+    logger.info("Acquired runtime lock at %s", settings.runtime_lock_path)
     stop_event = asyncio.Event()
     _install_signal_handlers(stop_event)
     dp = Dispatcher()
     dp.include_router(router)
 
-    restart_delay = settings.runtime_restart_base_delay_seconds
-    while True:
-        try:
-            should_stop = await _run_once(
-                settings=settings,
-                stop_event=stop_event,
-                dp=dp,
-            )
-            if should_stop:
-                logger.info("Supervisor received stop signal; exiting")
-                return
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            if stop_event.is_set():
-                logger.info("Stop signal is set; exiting supervisor after runtime failure")
-                return
-            logger.exception(
-                "Runtime failed; restarting in %.1f second(s)",
-                restart_delay,
-            )
-            await asyncio.sleep(restart_delay)
-            restart_delay = min(
-                settings.runtime_restart_max_delay_seconds,
-                restart_delay * 2,
-            )
+    try:
+        restart_delay = settings.runtime_restart_base_delay_seconds
+        while True:
+            try:
+                should_stop = await _run_once(
+                    settings=settings,
+                    stop_event=stop_event,
+                    dp=dp,
+                )
+                if should_stop:
+                    logger.info("Supervisor received stop signal; exiting")
+                    return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if stop_event.is_set():
+                    logger.info("Stop signal is set; exiting supervisor after runtime failure")
+                    return
+                logger.exception(
+                    "Runtime failed; restarting in %.1f second(s)",
+                    restart_delay,
+                )
+                await asyncio.sleep(restart_delay)
+                restart_delay = min(
+                    settings.runtime_restart_max_delay_seconds,
+                    restart_delay * 2,
+                )
+    finally:
+        runtime_lock.release()
+        logger.info("Released runtime lock at %s", settings.runtime_lock_path)
 
 
 async def run() -> None:
@@ -283,6 +321,9 @@ async def run() -> None:
 def main() -> None:
     try:
         asyncio.run(run_supervised())
+    except RuntimeInstanceLockedError as exc:
+        logger.error("%s", exc)
+        raise SystemExit(1) from exc
     except KeyboardInterrupt:
         logger.info("Interrupted by user (Ctrl+C)")
 

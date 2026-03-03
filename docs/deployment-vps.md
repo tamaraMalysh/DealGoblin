@@ -36,6 +36,7 @@ Edit `.env` and set:
 - `BOT_TOKEN`
 - `OWNER_CHAT_ID`
 - `SOURCE_CHAT_IDS`
+- `RUNTIME_LOCK_PATH` (optional; default `data/runtime.lock`)
 
 ## 3) Prepare persistent data directory
 
@@ -57,6 +58,9 @@ For first Telethon user authorization (if no existing session):
 ```bash
 docker compose run --rm dealgoblin
 ```
+
+Do not run `docker compose run --rm dealgoblin` while `docker compose up -d` is already running.
+Polling bots must have only one active runtime per token.
 
 After login completes, stop that one-off container and start the service in background:
 
@@ -90,6 +94,15 @@ sudo systemctl status dealgoblin.service
 - Restart service: `docker compose restart`
 - Update app: `git pull && docker compose up -d --build`
 - Follow logs: `docker compose logs -f --tail=200`
+
+## Conflict Recovery Runbook
+
+If logs show `TelegramConflictError: terminated by other getUpdates request`:
+
+1. Find and stop duplicate runtimes (extra local process, extra container, or second host).
+2. Keep exactly one DealGoblin runtime active for the bot token.
+3. Restart the surviving service once: `docker compose restart dealgoblin`.
+4. Verify recovery by tailing logs for at least 10 minutes and ensuring conflict lines do not recur.
 
 ## SQLite Decision and Migration Trigger
 

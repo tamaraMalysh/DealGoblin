@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -92,6 +93,8 @@ def patched_runtime(monkeypatch):
 
     class FakeDispatcher:
         polling_exception = None
+        start_polling_calls: ClassVar[list[dict[str, object]]] = []
+        stop_polling_calls = 0
 
         def __init__(self):
             self.workflow_data = {}
@@ -102,14 +105,20 @@ def patched_runtime(monkeypatch):
         def __setitem__(self, key, value):
             self.workflow_data[key] = value
 
-        async def start_polling(self, _bot, handle_signals=False):
-            del handle_signals
+        async def start_polling(self, _bot, handle_signals=False, close_bot_session=True):
+            type(self).start_polling_calls.append(
+                {
+                    "handle_signals": handle_signals,
+                    "close_bot_session": close_bot_session,
+                }
+            )
             exc = type(self).polling_exception
             if exc is not None:
                 raise exc
             await asyncio.Event().wait()
 
         async def stop_polling(self):
+            type(self).stop_polling_calls += 1
             return None
 
     class FakeTelethon:
@@ -219,6 +228,9 @@ async def test_run_once_restarts_on_polling_failure(patched_runtime):
         await runtime._run_once(settings=settings, stop_event=asyncio.Event(), dp=dp)
 
     assert isinstance(exc_info.value.__cause__, RuntimeError)
+    start_call = patched_runtime.fake_dispatcher_cls.start_polling_calls[0]
+    assert start_call["close_bot_session"] is False
+    assert start_call["handle_signals"] is False
     assert patched_runtime.fake_telethon_cls.last_instance.disconnect_called is True
     assert patched_runtime.fake_bot_cls.last_instance.session.closed is True
     assert patched_runtime.db.closed is True
@@ -271,9 +283,18 @@ async def test_run_supervised_retries_with_capped_backoff(monkeypatch):
     async def fake_sleep(delay: float):
         sleep_delays.append(delay)
 
+    class FakeLock:
+        released = False
+
+        def release(self):
+            self.released = True
+
+    fake_lock = FakeLock()
+
     monkeypatch.setattr(runtime, "Settings", lambda: settings)
     monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
     monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "acquire_runtime_lock", lambda _path: fake_lock)
     monkeypatch.setattr(runtime, "_run_once", fake_run_once)
     monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
 
@@ -281,6 +302,7 @@ async def test_run_supervised_retries_with_capped_backoff(monkeypatch):
 
     assert attempts["count"] == 3
     assert sleep_delays == [3.0, 5.0]
+    assert fake_lock.released is True
 
 
 async def test_run_supervised_stops_without_restart_sleep(monkeypatch):
@@ -299,15 +321,25 @@ async def test_run_supervised_stops_without_restart_sleep(monkeypatch):
     async def fake_sleep(_delay: float):
         raise AssertionError("sleep should not be called when shutdown is intentional")
 
+    class FakeLock:
+        released = False
+
+        def release(self):
+            self.released = True
+
+    fake_lock = FakeLock()
+
     monkeypatch.setattr(runtime, "Settings", lambda: settings)
     monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
     monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "acquire_runtime_lock", lambda _path: fake_lock)
     monkeypatch.setattr(runtime, "_run_once", fake_run_once)
     monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
 
     await runtime.run_supervised()
 
     assert attempts["count"] == 1
+    assert fake_lock.released is True
 
 
 async def test_run_supervised_attaches_router_once_across_retries(monkeypatch):
@@ -339,9 +371,18 @@ async def test_run_supervised_attaches_router_once_across_retries(monkeypatch):
     async def fake_sleep(_delay: float):
         return None
 
+    class FakeLock:
+        released = False
+
+        def release(self):
+            self.released = True
+
+    fake_lock = FakeLock()
+
     monkeypatch.setattr(runtime, "Settings", lambda: settings)
     monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
     monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "acquire_runtime_lock", lambda _path: fake_lock)
     monkeypatch.setattr(runtime, "_run_once", fake_run_once)
     monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
 
@@ -351,3 +392,65 @@ async def test_run_supervised_attaches_router_once_across_retries(monkeypatch):
     assert FakeDispatcher.instances_created == 1
     assert FakeDispatcher.include_router_calls == 1
     assert len(set(seen_dp_ids)) == 1
+    assert fake_lock.released is True
+
+
+async def test_shutdown_polling_calls_stop_before_cancel_fallback(monkeypatch):
+    calls: list[str] = []
+    cancel_targets: list[str] = []
+    wait_for_counter = {"count": 0}
+
+    class FakeDispatcher:
+        async def stop_polling(self):
+            calls.append("stop")
+            return None
+
+    async def fake_wait_for(awaitable, timeout):
+        del timeout
+        wait_for_counter["count"] += 1
+        if wait_for_counter["count"] == 1:
+            return await awaitable
+        raise TimeoutError
+
+    async def fake_cancel_and_wait(task):
+        cancel_targets.append(task.get_name())
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    polling_task = asyncio.create_task(asyncio.Event().wait(), name="polling")
+    monkeypatch.setattr(runtime.asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(runtime, "_cancel_and_wait", fake_cancel_and_wait)
+
+    await runtime._shutdown_polling(FakeDispatcher(), polling_task, timeout_seconds=0.1)
+
+    assert calls == ["stop"]
+    assert cancel_targets == ["polling"]
+
+
+async def test_run_supervised_exits_when_runtime_lock_is_held(monkeypatch):
+    settings = _make_settings()
+    run_once_calls = {"count": 0}
+
+    class FakeDispatcher:
+        def include_router(self, _router):
+            return None
+
+    async def fake_run_once(settings: Settings, stop_event: asyncio.Event, dp) -> bool:
+        del settings, stop_event, dp
+        run_once_calls["count"] += 1
+        return True
+
+    def fake_acquire_runtime_lock(_path: str):
+        raise runtime.RuntimeInstanceLockedError("lock held")
+
+    monkeypatch.setattr(runtime, "Settings", lambda: settings)
+    monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
+    monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "_run_once", fake_run_once)
+    monkeypatch.setattr(runtime, "acquire_runtime_lock", fake_acquire_runtime_lock)
+
+    with pytest.raises(runtime.RuntimeInstanceLockedError, match="lock held"):
+        await runtime.run_supervised()
+
+    assert run_once_calls["count"] == 0

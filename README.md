@@ -23,6 +23,7 @@ uv run python -m dealgoblin
 ```
 
 Configure runtime secrets and IDs in `.env` (for example: Telegram API credentials, bot token, owner/source chat IDs).
+Run only one DealGoblin instance per bot token when using long polling.
 
 ## Environment Variables
 
@@ -33,6 +34,7 @@ Copy `.env.example` to `.env` and fill in required values:
 - `BOT_TOKEN`
 - `OWNER_CHAT_ID`
 - `SOURCE_CHAT_IDS` (comma-separated Telegram chat IDs)
+- `RUNTIME_LOCK_PATH` (optional, default `data/runtime.lock`; host-local single-instance lock file)
 - `DUPLICATE_SUPPRESSION_DAYS` (optional, default `14`; suppresses cross-chat duplicate alerts per watch)
 
 ## Quality Checks
@@ -57,7 +59,31 @@ docker compose build
 docker compose up
 ```
 
+### Rebuild and Restart Bot (Docker Compose)
+
+Rebuild the bot image and recreate the running service:
+
+```bash
+docker compose up -d --build dealgoblin
+```
+
+Restart the bot service without rebuilding:
+
+```bash
+docker compose restart dealgoblin
+```
+
 For long-running production deployment on a VPS with persistent SQLite/session data, use:
 
 - [VPS deployment guide](docs/deployment-vps.md)
 - [systemd unit template](deploy/systemd/dealgoblin.service)
+
+## Troubleshooting
+
+### `TelegramConflictError: terminated by other getUpdates request`
+
+This means more than one bot runtime is polling Telegram with the same token.
+
+1. Stop all duplicate local/container runtimes and keep only one instance.
+2. Restart the remaining instance once to clear any stale polling loop state.
+3. Confirm logs no longer show repeated `TelegramConflictError` lines.

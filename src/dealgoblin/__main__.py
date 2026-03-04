@@ -149,7 +149,10 @@ async def _run_once(
     stop_wait_task = None
 
     try:
-        db = await init_db(settings.db_path)
+        db = await init_db(
+            settings.db_path,
+            busy_timeout_ms=settings.db_busy_timeout_ms,
+        )
 
         telethon = TelegramClient(
             settings.session_path,

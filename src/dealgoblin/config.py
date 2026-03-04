@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     bot_token: str
     owner_chat_id: int
     db_path: str = str(Path("data") / "dealgoblin.sqlite3")
+    db_busy_timeout_ms: int = 15000
     session_path: str = str(Path("data") / "telethon.session")
     source_chat_ids: Annotated[list[int], NoDecode] = Field(default_factory=list)
     source_backfill_limit: int = 100
@@ -63,6 +64,13 @@ class Settings(BaseSettings):
     def _validate_healthcheck_threshold(cls, value: int) -> int:
         if value < 1:
             raise ValueError("must be greater than or equal to 1")
+        return value
+
+    @field_validator("db_busy_timeout_ms")
+    @classmethod
+    def _validate_db_busy_timeout_ms(cls, value: int) -> int:
+        if value < 1000:
+            raise ValueError("must be greater than or equal to 1000")
         return value
 
     @field_validator("duplicate_suppression_days")

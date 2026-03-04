@@ -66,10 +66,14 @@ docker compose run --rm dealgoblin \
 - Never run `docker compose run --rm dealgoblin` concurrently with `docker compose up -d`; long-polling bots must run as a single active instance per token.
 - Optional startup backfill depth is `SOURCE_BACKFILL_LIMIT` (default `100`).
 - Optional raw forwarding of every ingested message is `FORWARD_ALL_INGESTED=true` (to `OWNER_CHAT_ID`).
+- SQLite lock wait timeout is configurable via `.env`:
+  - `DB_BUSY_TIMEOUT_MS` (default `15000`)
 - Telethon startup connect retry policy is configurable via `.env`:
   - `TELETHON_CONNECTION_RETRIES` (default `-1`, effectively infinite)
   - `TELETHON_RETRY_DELAY_SECONDS` (default `1.0`)
 - Runtime reconnect recovery is handled by the supervisor restart loop.
+- SQLite corruption is treated as fatal at runtime, which triggers supervisor restart;
+  startup then quarantines corrupted DB files (`.corrupt-*`) and rebuilds a fresh DB.
 - Runtime supervisor restart backoff is configurable via `.env`:
   - `RUNTIME_RESTART_BASE_DELAY_SECONDS` (default `3.0`)
   - `RUNTIME_RESTART_MAX_DELAY_SECONDS` (default `30.0`)

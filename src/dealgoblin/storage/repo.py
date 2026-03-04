@@ -1,13 +1,28 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Awaitable, Callable
 
 import aiosqlite
+
+from dealgoblin.storage.sqlite_retry import run_with_sqlite_lock_retry
 
 
 def _rows_to_dicts(cursor_description, rows):
     cols = [d[0] for d in cursor_description]
     return [dict(zip(cols, row, strict=True)) for row in rows]
+
+
+async def _run_write_with_retry[T](
+    db: aiosqlite.Connection,
+    operation_name: str,
+    operation: Callable[[], Awaitable[T]],
+) -> T:
+    return await run_with_sqlite_lock_retry(
+        operation,
+        operation_name=operation_name,
+        on_retry=db.rollback,
+    )
 
 
 class SourceRepo:
@@ -17,17 +32,23 @@ class SourceRepo:
     async def add(
         self, chat_id: int, username: str | None = None, title: str | None = None
     ) -> bool:
-        async with self._db.execute(
-            "INSERT OR IGNORE INTO sources (chat_id, username, title) VALUES (?, ?, ?)",
-            (chat_id, username, title),
-        ) as cur:
-            inserted = cur.rowcount > 0
-        await self._db.commit()
-        return inserted
+        async def _operation() -> bool:
+            async with self._db.execute(
+                "INSERT OR IGNORE INTO sources (chat_id, username, title) VALUES (?, ?, ?)",
+                (chat_id, username, title),
+            ) as cur:
+                inserted = cur.rowcount > 0
+            await self._db.commit()
+            return inserted
+
+        return await _run_write_with_retry(self._db, "sources.add", _operation)
 
     async def remove(self, chat_id: int):
-        await self._db.execute("DELETE FROM sources WHERE chat_id = ?", (chat_id,))
-        await self._db.commit()
+        async def _operation() -> None:
+            await self._db.execute("DELETE FROM sources WHERE chat_id = ?", (chat_id,))
+            await self._db.commit()
+
+        await _run_write_with_retry(self._db, "sources.remove", _operation)
 
     async def list_all(self) -> list[dict]:
         async with self._db.execute("SELECT * FROM sources ORDER BY id") as cur:
@@ -38,35 +59,38 @@ class SourceRepo:
             return [row[0] for row in await cur.fetchall()]
 
     async def sync_authoritative(self, entries: list[dict[str, int | str | None]]) -> None:
-        chat_ids = [int(entry["chat_id"]) for entry in entries]
-        if chat_ids:
-            incoming_chat_ids = set(chat_ids)
-            async with self._db.execute("SELECT chat_id FROM sources") as cur:
-                existing_chat_ids = [row[0] for row in await cur.fetchall()]
+        async def _operation() -> None:
+            chat_ids = [int(entry["chat_id"]) for entry in entries]
+            if chat_ids:
+                incoming_chat_ids = set(chat_ids)
+                async with self._db.execute("SELECT chat_id FROM sources") as cur:
+                    existing_chat_ids = [row[0] for row in await cur.fetchall()]
 
-            for existing_chat_id in existing_chat_ids:
-                if existing_chat_id not in incoming_chat_ids:
-                    await self._db.execute(
-                        "DELETE FROM sources WHERE chat_id = ?",
-                        (existing_chat_id,),
-                    )
-        else:
-            await self._db.execute("DELETE FROM sources")
+                for existing_chat_id in existing_chat_ids:
+                    if existing_chat_id not in incoming_chat_ids:
+                        await self._db.execute(
+                            "DELETE FROM sources WHERE chat_id = ?",
+                            (existing_chat_id,),
+                        )
+            else:
+                await self._db.execute("DELETE FROM sources")
 
-        for entry in entries:
-            await self._db.execute(
-                "INSERT INTO sources (chat_id, username, title) VALUES (?, ?, ?) "
-                "ON CONFLICT(chat_id) DO UPDATE SET "
-                "username = COALESCE(excluded.username, sources.username), "
-                "title = COALESCE(excluded.title, sources.title)",
-                (
-                    int(entry["chat_id"]),
-                    entry.get("username"),
-                    entry.get("title"),
-                ),
-            )
+            for entry in entries:
+                await self._db.execute(
+                    "INSERT INTO sources (chat_id, username, title) VALUES (?, ?, ?) "
+                    "ON CONFLICT(chat_id) DO UPDATE SET "
+                    "username = COALESCE(excluded.username, sources.username), "
+                    "title = COALESCE(excluded.title, sources.title)",
+                    (
+                        int(entry["chat_id"]),
+                        entry.get("username"),
+                        entry.get("title"),
+                    ),
+                )
 
-        await self._db.commit()
+            await self._db.commit()
+
+        await _run_write_with_retry(self._db, "sources.sync_authoritative", _operation)
 
 
 class BotUserRepo:
@@ -80,17 +104,20 @@ class BotUserRepo:
         city: str = "Тбилиси",
         subscription: str = "FREE",
     ) -> dict:
-        await self._db.execute(
-            "INSERT OR IGNORE INTO bot_users (tg_user_id, chat_id, city, subscription) "
-            "VALUES (?, ?, ?, ?)",
-            (tg_user_id, chat_id, city, subscription),
-        )
-        if tg_user_id is not None:
+        async def _operation() -> None:
             await self._db.execute(
-                "UPDATE bot_users SET tg_user_id = COALESCE(tg_user_id, ?) WHERE chat_id = ?",
-                (tg_user_id, chat_id),
+                "INSERT OR IGNORE INTO bot_users (tg_user_id, chat_id, city, subscription) "
+                "VALUES (?, ?, ?, ?)",
+                (tg_user_id, chat_id, city, subscription),
             )
-        await self._db.commit()
+            if tg_user_id is not None:
+                await self._db.execute(
+                    "UPDATE bot_users SET tg_user_id = COALESCE(tg_user_id, ?) WHERE chat_id = ?",
+                    (tg_user_id, chat_id),
+                )
+            await self._db.commit()
+
+        await _run_write_with_retry(self._db, "bot_users.ensure", _operation)
         async with self._db.execute("SELECT * FROM bot_users WHERE chat_id = ?", (chat_id,)) as cur:
             row = await cur.fetchone()
             return dict(zip([d[0] for d in cur.description], row, strict=True))
@@ -122,29 +149,32 @@ class MessageRepo:
         link: str | None = None,
         posted_at: str | None = None,
     ) -> int | None:
-        try:
-            async with self._db.execute(
-                "INSERT INTO messages ("
-                "chat_id, message_id, text_raw, text_norm, author_id, author_name_norm, "
-                "dedupe_key, link, posted_at"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    chat_id,
-                    message_id,
-                    text_raw,
-                    text_norm,
-                    author_id,
-                    author_name_norm,
-                    dedupe_key,
-                    link,
-                    posted_at,
-                ),
-            ) as cur:
-                rowid = cur.lastrowid
-            await self._db.commit()
-            return rowid
-        except sqlite3.IntegrityError:
-            return None
+        async def _operation() -> int | None:
+            try:
+                async with self._db.execute(
+                    "INSERT INTO messages ("
+                    "chat_id, message_id, text_raw, text_norm, author_id, author_name_norm, "
+                    "dedupe_key, link, posted_at"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        chat_id,
+                        message_id,
+                        text_raw,
+                        text_norm,
+                        author_id,
+                        author_name_norm,
+                        dedupe_key,
+                        link,
+                        posted_at,
+                    ),
+                ) as cur:
+                    rowid = cur.lastrowid
+                await self._db.commit()
+                return rowid
+            except sqlite3.IntegrityError:
+                return None
+
+        return await _run_write_with_retry(self._db, "messages.insert", _operation)
 
     async def search_fts(self, query: str, limit: int = 10) -> list[dict]:
         async with self._db.execute(
@@ -192,14 +222,17 @@ class WatchRepo:
         price_min: float | None = None,
         price_max: float | None = None,
     ) -> int:
-        async with self._db.execute(
-            "INSERT INTO watches (user_id, name, fts_query, price_min, price_max) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (user_id, name, fts_query, price_min, price_max),
-        ) as cur:
-            wid = cur.lastrowid
-        await self._db.commit()
-        return wid
+        async def _operation() -> int:
+            async with self._db.execute(
+                "INSERT INTO watches (user_id, name, fts_query, price_min, price_max) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, name, fts_query, price_min, price_max),
+            ) as cur:
+                wid = cur.lastrowid
+            await self._db.commit()
+            return wid
+
+        return await _run_write_with_retry(self._db, "watches.add", _operation)
 
     async def list_all(self) -> list[dict]:
         async with self._db.execute("SELECT * FROM watches ORDER BY id") as cur:
@@ -225,26 +258,35 @@ class WatchRepo:
             return _rows_to_dicts(cur.description, await cur.fetchall())
 
     async def set_enabled(self, watch_id: int, enabled: bool):
-        await self._db.execute(
-            "UPDATE watches SET enabled = ? WHERE id = ?", (int(enabled), watch_id)
-        )
-        await self._db.commit()
+        async def _operation() -> None:
+            await self._db.execute(
+                "UPDATE watches SET enabled = ? WHERE id = ?", (int(enabled), watch_id)
+            )
+            await self._db.commit()
+
+        await _run_write_with_retry(self._db, "watches.set_enabled", _operation)
 
     async def remove(self, watch_id: int):
-        await self._db.execute("DELETE FROM match_events WHERE watch_id = ?", (watch_id,))
-        await self._db.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
-        await self._db.commit()
+        async def _operation() -> None:
+            await self._db.execute("DELETE FROM match_events WHERE watch_id = ?", (watch_id,))
+            await self._db.execute("DELETE FROM watches WHERE id = ?", (watch_id,))
+            await self._db.commit()
+
+        await _run_write_with_retry(self._db, "watches.remove", _operation)
 
     async def remove_for_user(self, watch_id: int, user_id: int):
-        await self._db.execute(
-            "DELETE FROM match_events WHERE watch_id = ? "
-            "AND EXISTS (SELECT 1 FROM watches w WHERE w.id = ? AND w.user_id = ?)",
-            (watch_id, watch_id, user_id),
-        )
-        await self._db.execute(
-            "DELETE FROM watches WHERE id = ? AND user_id = ?", (watch_id, user_id)
-        )
-        await self._db.commit()
+        async def _operation() -> None:
+            await self._db.execute(
+                "DELETE FROM match_events WHERE watch_id = ? "
+                "AND EXISTS (SELECT 1 FROM watches w WHERE w.id = ? AND w.user_id = ?)",
+                (watch_id, watch_id, user_id),
+            )
+            await self._db.execute(
+                "DELETE FROM watches WHERE id = ? AND user_id = ?", (watch_id, user_id)
+            )
+            await self._db.commit()
+
+        await _run_write_with_retry(self._db, "watches.remove_for_user", _operation)
 
     async def get(self, watch_id: int) -> dict | None:
         async with self._db.execute("SELECT * FROM watches WHERE id = ?", (watch_id,)) as cur:
@@ -265,16 +307,19 @@ class MatchEventRepo:
         self._db = db
 
     async def create(self, watch_id: int, message_rowid: int) -> int | None:
-        try:
-            async with self._db.execute(
-                "INSERT INTO match_events (watch_id, message_rowid) VALUES (?, ?)",
-                (watch_id, message_rowid),
-            ) as cur:
-                eid = cur.lastrowid
-            await self._db.commit()
-            return eid
-        except sqlite3.IntegrityError:
-            return None
+        async def _operation() -> int | None:
+            try:
+                async with self._db.execute(
+                    "INSERT INTO match_events (watch_id, message_rowid) VALUES (?, ?)",
+                    (watch_id, message_rowid),
+                ) as cur:
+                    eid = cur.lastrowid
+                await self._db.commit()
+                return eid
+            except sqlite3.IntegrityError:
+                return None
+
+        return await _run_write_with_retry(self._db, "match_events.create", _operation)
 
     async def list_pending(self) -> list[dict]:
         async with self._db.execute(
@@ -318,7 +363,10 @@ class MatchEventRepo:
             return row is not None
 
     async def mark_notified(self, event_id: int):
-        await self._db.execute(
-            "UPDATE match_events SET notified_at = datetime('now') WHERE id = ?", (event_id,)
-        )
-        await self._db.commit()
+        async def _operation() -> None:
+            await self._db.execute(
+                "UPDATE match_events SET notified_at = datetime('now') WHERE id = ?", (event_id,)
+            )
+            await self._db.commit()
+
+        await _run_write_with_retry(self._db, "match_events.mark_notified", _operation)

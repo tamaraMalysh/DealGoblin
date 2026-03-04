@@ -9,6 +9,7 @@ def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "token:xxx")
     monkeypatch.setenv("OWNER_CHAT_ID", "789")
     monkeypatch.setenv("SOURCE_CHAT_IDS", "-1001,-1002")
+    monkeypatch.setenv("DB_BUSY_TIMEOUT_MS", "20000")
     monkeypatch.setenv("SOURCE_BACKFILL_LIMIT", "150")
     monkeypatch.setenv("FORWARD_ALL_INGESTED", "true")
     monkeypatch.setenv("TELETHON_CONNECTION_RETRIES", "7")
@@ -25,6 +26,7 @@ def test_settings_from_env(monkeypatch):
     assert s.bot_token == "token:xxx"
     assert s.owner_chat_id == 789
     assert s.source_chat_ids == [-1001, -1002]
+    assert s.db_busy_timeout_ms == 20000
     assert s.source_backfill_limit == 150
     assert s.forward_all_ingested is True
     assert s.telethon_connection_retries == 7
@@ -43,6 +45,7 @@ def test_settings_defaults(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "t")
     monkeypatch.setenv("OWNER_CHAT_ID", "1")
     monkeypatch.delenv("SOURCE_CHAT_IDS", raising=False)
+    monkeypatch.delenv("DB_BUSY_TIMEOUT_MS", raising=False)
     monkeypatch.delenv("SOURCE_BACKFILL_LIMIT", raising=False)
     monkeypatch.delenv("FORWARD_ALL_INGESTED", raising=False)
     monkeypatch.delenv("TELETHON_CONNECTION_RETRIES", raising=False)
@@ -57,6 +60,7 @@ def test_settings_defaults(monkeypatch):
     assert s.db_path.endswith("dealgoblin.sqlite3")
     assert s.session_path.endswith("telethon.session")
     assert s.source_chat_ids == []
+    assert s.db_busy_timeout_ms == 15000
     assert s.source_backfill_limit == 100
     assert s.forward_all_ingested is False
     assert s.telethon_connection_retries == -1
@@ -83,6 +87,7 @@ def test_settings_invalid_source_chat_ids(monkeypatch):
     ("env_name", "env_value", "match"),
     [
         ("TELETHON_RETRY_DELAY_SECONDS", "0", "telethon_retry_delay_seconds"),
+        ("DB_BUSY_TIMEOUT_MS", "999", "db_busy_timeout_ms"),
         ("RUNTIME_RESTART_BASE_DELAY_SECONDS", "0", "runtime_restart_base_delay_seconds"),
         ("RUNTIME_RESTART_MAX_DELAY_SECONDS", "0", "runtime_restart_max_delay_seconds"),
         ("BOT_HEALTHCHECK_INTERVAL_SECONDS", "0", "bot_healthcheck_interval_seconds"),

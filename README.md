@@ -34,6 +34,7 @@ Copy `.env.example` to `.env` and fill in required values:
 - `BOT_TOKEN`
 - `OWNER_CHAT_ID`
 - `SOURCE_CHAT_IDS` (comma-separated Telegram chat IDs)
+- `DB_BUSY_TIMEOUT_MS` (optional, default `15000`; SQLite lock wait timeout in milliseconds)
 - `RUNTIME_LOCK_PATH` (optional, default `data/runtime.lock`; host-local single-instance lock file)
 - `DUPLICATE_SUPPRESSION_DAYS` (optional, default `14`; suppresses cross-chat duplicate alerts per watch)
 
@@ -87,3 +88,14 @@ This means more than one bot runtime is polling Telegram with the same token.
 1. Stop all duplicate local/container runtimes and keep only one instance.
 2. Restart the remaining instance once to clear any stale polling loop state.
 3. Confirm logs no longer show repeated `TelegramConflictError` lines.
+
+### `sqlite3.DatabaseError: database disk image is malformed`
+
+DealGoblin now attempts automatic recovery for SQLite corruption:
+
+1. The corrupted database files are moved to timestamped quarantine files such as
+   `dealgoblin.sqlite3.corrupt-YYYYMMDDTHHMMSSZ` (including `-wal` and `-shm` sidecars).
+2. A fresh SQLite database is created at the configured `DB_PATH`.
+3. Runtime components treat corruption as fatal so the supervisor restarts cleanly.
+
+Quarantined `.corrupt-*` files are preserved for manual forensic recovery if you need to inspect or salvage data.

@@ -5,6 +5,7 @@ import logging
 
 from aiogram import Bot
 
+from dealgoblin.storage.db import is_sqlite_corruption_error
 from dealgoblin.storage.repo import MatchEventRepo, MessageRepo
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,10 @@ class Notifier:
         while self._running:
             try:
                 await self._poll()
-            except Exception:
+            except Exception as exc:
+                if is_sqlite_corruption_error(exc):
+                    logger.critical("SQLite corruption detected in notifier poll; failing runtime")
+                    raise
                 logger.exception("Notifier poll error")
             await asyncio.sleep(self._poll_interval)
 

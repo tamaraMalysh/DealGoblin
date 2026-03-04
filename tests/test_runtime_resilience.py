@@ -176,7 +176,8 @@ def patched_runtime(monkeypatch):
         async def stop(self):
             self.stopped = True
 
-    async def fake_init_db(_path: str):
+    async def fake_init_db(_path: str, busy_timeout_ms: int = 15000):
+        del busy_timeout_ms
         db = FakeDB()
         state.db = db
         return db

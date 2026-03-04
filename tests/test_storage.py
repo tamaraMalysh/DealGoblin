@@ -1,7 +1,9 @@
 import sqlite3
+from pathlib import Path
 
 import pytest
 
+import dealgoblin.storage.db as storage_db
 from dealgoblin.ingest.normalize import normalize_text
 from dealgoblin.storage.db import init_db
 from dealgoblin.storage.repo import BotUserRepo, MatchEventRepo, MessageRepo, SourceRepo, WatchRepo
@@ -29,6 +31,92 @@ async def test_schema_tables_exist(db):
     assert "match_events" in tables
     assert "messages_fts" in tables
     assert "runtime_meta" in tables
+
+
+async def test_init_db_sets_busy_timeout_and_wal(db_path):
+    conn = await init_db(db_path, busy_timeout_ms=2222)
+
+    async with conn.execute("PRAGMA busy_timeout") as cur:
+        busy_timeout_row = await cur.fetchone()
+    assert int(busy_timeout_row[0]) == 2222
+
+    async with conn.execute("PRAGMA journal_mode") as cur:
+        journal_row = await cur.fetchone()
+    assert str(journal_row[0]).lower() == "wal"
+
+    await conn.close()
+
+
+async def test_init_db_recovers_from_non_sqlite_file(db_path):
+    db_file = Path(db_path)
+    original_payload = b"not-a-sqlite-file"
+    db_file.write_bytes(original_payload)
+
+    conn = await init_db(db_path)
+    async with conn.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
+        table_names = {row[0] for row in await cur.fetchall()}
+    await conn.close()
+
+    assert "messages" in table_names
+    backups = [
+        path
+        for path in db_file.parent.glob(f"{db_file.name}.corrupt-*")
+        if not path.name.endswith("-wal") and not path.name.endswith("-shm")
+    ]
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original_payload
+
+
+async def test_init_db_moves_wal_and_shm_sidecars_on_corruption(db_path, monkeypatch):
+    db_file = Path(db_path)
+    wal_file = db_file.with_name(f"{db_file.name}-wal")
+    shm_file = db_file.with_name(f"{db_file.name}-shm")
+    db_file.write_bytes(b"corrupted-main")
+    wal_file.write_bytes(b"corrupted-wal")
+    shm_file.write_bytes(b"corrupted-shm")
+
+    calls = 0
+    original_init_once = storage_db._init_db_once
+
+    async def _fake_init_once(path: str, busy_timeout_ms: int):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise sqlite3.DatabaseError("database disk image is malformed")
+        return await original_init_once(path, busy_timeout_ms)
+
+    monkeypatch.setattr(storage_db, "_init_db_once", _fake_init_once)
+
+    conn = await init_db(db_path)
+    await conn.close()
+
+    assert calls == 2
+    assert not wal_file.exists()
+    assert not shm_file.exists()
+    backup_names = {path.name for path in db_file.parent.glob(f"{db_file.name}.corrupt-*")}
+    assert any(not name.endswith("-wal") and not name.endswith("-shm") for name in backup_names)
+    assert any(name.endswith("-wal") for name in backup_names)
+    assert any(name.endswith("-shm") for name in backup_names)
+
+
+async def test_init_db_integrity_probe_rejects_quick_check_failure(db_path, monkeypatch):
+    calls = 0
+
+    async def _fake_assert_integrity_ok(_conn):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise sqlite3.DatabaseError("database corrupt: forced quick_check failure")
+
+    monkeypatch.setattr(storage_db, "_assert_integrity_ok", _fake_assert_integrity_ok)
+
+    db_file = Path(db_path)
+    conn = await init_db(db_path)
+    await conn.close()
+
+    backups = [path for path in db_file.parent.glob(f"{db_file.name}.corrupt-*")]
+    assert calls == 2
+    assert len(backups) == 1
 
 
 async def test_init_db_adds_dedupe_columns_and_indexes_to_legacy_messages(db_path):

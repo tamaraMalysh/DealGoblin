@@ -52,6 +52,12 @@ docker compose up -d
 ## First Telethon Login (Docker)
 docker compose run --rm dealgoblin
 
+## Bootstrap Host (VPS)
+./deploy/scripts/bootstrap_server.sh
+
+## Deploy App (VPS)
+./deploy/scripts/deploy_server.sh main
+
 ## Resolve Source ID (Docker)
 docker compose run --rm dealgoblin \
   uv run python -m dealgoblin.tools.resolve_source https://t.me/<username>
@@ -62,6 +68,7 @@ docker compose run --rm dealgoblin \
 - Sources are configured via `.env` using `SOURCE_CHAT_IDS` (comma-separated canonical IDs).
 - Start from `.env.example` when creating `.env`.
 - Docker runtime expects `.env` for secrets/config and mounts `./data` to persist SQLite + Telethon session files.
+- GitHub Actions manual deploy workflow is `.github/workflows/deploy.yml` (`workflow_dispatch`) and executes `deploy/scripts/deploy_server.sh` on the VPS over SSH.
 - First Telethon user-auth flow in Docker should be completed with `docker compose run --rm dealgoblin`; session files persist in `./data`.
 - Never run `docker compose run --rm dealgoblin` concurrently with `docker compose up -d`; long-polling bots must run as a single active instance per token.
 - Optional startup backfill depth is `SOURCE_BACKFILL_LIMIT` (default `100`).

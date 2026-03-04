@@ -38,22 +38,16 @@ Edit `.env` and set:
 - `SOURCE_CHAT_IDS`
 - `RUNTIME_LOCK_PATH` (optional; default `data/runtime.lock`)
 
-## 3) Prepare persistent data directory
+## 3) Run one-time host bootstrap script
+
+The bootstrap script validates Ubuntu, installs Docker + Compose if missing, prepares `/opt/dealgoblin/data`, installs and enables `dealgoblin.service`, and checks `.env` completeness.
 
 ```bash
-mkdir -p data
-chmod 700 data
+chmod +x deploy/scripts/bootstrap_server.sh deploy/scripts/deploy_server.sh
+./deploy/scripts/bootstrap_server.sh
 ```
 
-If migrating an existing bot, copy your current `telethon.session` into `data/` before first start.
-
-## 4) Build and start
-
-```bash
-docker compose up -d --build
-```
-
-For first Telethon user authorization (if no existing session):
+## 4) First Telethon authorization (only when `data/telethon.session` is absent)
 
 ```bash
 docker compose run --rm dealgoblin
@@ -62,38 +56,60 @@ docker compose run --rm dealgoblin
 Do not run `docker compose run --rm dealgoblin` while `docker compose up -d` is already running.
 Polling bots must have only one active runtime per token.
 
-After login completes, stop that one-off container and start the service in background:
+## 5) Deploy current revision
 
 ```bash
-docker compose up -d
+./deploy/scripts/deploy_server.sh main
 ```
 
-## 5) Verify runtime and persistence
+The deploy script uses `flock` to prevent concurrent deploy runs, performs `git fetch` + `git pull --ff-only`, rebuilds/restarts the service container, then prints `docker compose ps` and recent logs.
+
+## 6) Verify runtime and persistence
 
 ```bash
 docker compose ps
-docker compose logs -f --tail=200
+docker compose logs -f --tail=200 dealgoblin
 ls -lah data/
+sudo systemctl status dealgoblin.service
 ```
 
 Healthy logs should show the bot polling loop, Telethon connection, and notifier loop starting.
 
-## Optional boot-start with systemd
+## 7) Configure GitHub manual deploy (`workflow_dispatch`)
 
-Install the unit file from `deploy/systemd/dealgoblin.service`:
+This repository includes `.github/workflows/deploy.yml`, which SSHes into the VPS and runs:
 
 ```bash
-sudo cp deploy/systemd/dealgoblin.service /etc/systemd/system/dealgoblin.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now dealgoblin.service
-sudo systemctl status dealgoblin.service
+cd /opt/dealgoblin && ./deploy/scripts/deploy_server.sh <ref>
 ```
+
+Set these repository secrets:
+
+- `DO_SSH_HOST`
+- `DO_SSH_PORT` (optional, defaults to `22`)
+- `DO_SSH_USER`
+- `DO_SSH_PRIVATE_KEY`
+- `DO_SSH_KNOWN_HOSTS`
+
+Generate known hosts value from your workstation:
+
+```bash
+ssh-keyscan -H <droplet-host-or-ip>
+```
+
+After secrets are set:
+
+1. Open GitHub Actions.
+2. Select workflow `Deploy`.
+3. Click `Run workflow`.
+4. Keep default `ref=main` unless intentionally deploying another branch.
 
 ## Operations
 
-- Restart service: `docker compose restart`
-- Update app: `git pull && docker compose up -d --build`
-- Follow logs: `docker compose logs -f --tail=200`
+- Deploy on server: `./deploy/scripts/deploy_server.sh main`
+- Deploy from GitHub UI: run workflow `Deploy` with `ref=main`
+- Restart service: `docker compose restart dealgoblin`
+- Follow logs: `docker compose logs -f --tail=200 dealgoblin`
 
 ## Conflict Recovery Runbook
 

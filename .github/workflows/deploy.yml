@@ -1,0 +1,72 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git branch to deploy"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Configure SSH credentials
+        env:
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          DO_SSH_KNOWN_HOSTS: ${{ secrets.DO_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DO_SSH_PRIVATE_KEY}" || -z "${DO_SSH_KNOWN_HOSTS}" ]]; then
+            echo "Missing required deploy secrets: DO_SSH_PRIVATE_KEY and/or DO_SSH_KNOWN_HOSTS" >&2
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${DO_SSH_PRIVATE_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${DO_SSH_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy on DigitalOcean server
+        env:
+          DO_SSH_HOST: ${{ secrets.DO_SSH_HOST }}
+          DO_SSH_PORT: ${{ secrets.DO_SSH_PORT }}
+          DO_SSH_USER: ${{ secrets.DO_SSH_USER }}
+          DEPLOY_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DO_SSH_HOST}" || -z "${DO_SSH_USER}" ]]; then
+            echo "Missing required deploy secrets: DO_SSH_HOST and/or DO_SSH_USER" >&2
+            exit 1
+          fi
+
+          PORT="${DO_SSH_PORT:-22}"
+          REMOTE_REF="$(printf '%q' "${DEPLOY_REF}")"
+
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -p "${PORT}" \
+            "${DO_SSH_USER}@${DO_SSH_HOST}" \
+            "cd /opt/dealgoblin && ./deploy/scripts/deploy_server.sh ${REMOTE_REF}"

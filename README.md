@@ -52,6 +52,7 @@ uv run pip-audit --strict -r /tmp/requirements-deps.txt --no-deps
 ## CI
 
 GitHub Actions workflow `CI` (`.github/workflows/ci.yml`) runs on pull requests and pushes to `main` and enforces the full quality gate.
+Manual production deploy workflow `Deploy` (`.github/workflows/deploy.yml`) is triggered from GitHub Actions UI (`workflow_dispatch`).
 
 ## Docker (Local/Single Host)
 
@@ -78,6 +79,47 @@ For long-running production deployment on a VPS with persistent SQLite/session d
 
 - [VPS deployment guide](docs/deployment-vps.md)
 - [systemd unit template](deploy/systemd/dealgoblin.service)
+
+## Production Deploy (DigitalOcean)
+
+This repository includes deployment automation for a single DigitalOcean VPS:
+
+- `deploy/scripts/bootstrap_server.sh`: one-time host setup (Ubuntu checks, Docker install, service setup, `.env` validation).
+- `deploy/scripts/deploy_server.sh`: idempotent app deploy with deploy lock (`flock`), `git pull --ff-only`, and `docker compose up -d --build dealgoblin`.
+- `.github/workflows/deploy.yml`: manual GitHub deploy (`workflow_dispatch`) over SSH.
+
+### One-time host setup
+
+On the VPS after cloning the repository:
+
+```bash
+chmod +x deploy/scripts/bootstrap_server.sh deploy/scripts/deploy_server.sh
+./deploy/scripts/bootstrap_server.sh
+```
+
+If `data/telethon.session` does not exist yet:
+
+```bash
+docker compose run --rm dealgoblin
+```
+
+### Manual deploy from server shell
+
+```bash
+./deploy/scripts/deploy_server.sh main
+```
+
+### Manual deploy from GitHub Actions
+
+Configure repository secrets:
+
+- `DO_SSH_HOST`
+- `DO_SSH_PORT` (optional, defaults to `22`)
+- `DO_SSH_USER`
+- `DO_SSH_PRIVATE_KEY`
+- `DO_SSH_KNOWN_HOSTS`
+
+Then run workflow `Deploy` in GitHub Actions and keep `ref=main` for production deploys.
 
 ## Troubleshooting
 

@@ -211,6 +211,7 @@ async def test_run_once_restarts_on_telethon_disconnect_error(patched_runtime):
     with pytest.raises(runtime.RuntimeRestartError, match="telethon-disconnected") as exc_info:
         await runtime._run_once(settings=settings, stop_event=asyncio.Event(), dp=dp)
 
+    assert exc_info.value.task_name == "telethon-disconnected"
     assert isinstance(exc_info.value.__cause__, ConnectionError)
     assert patched_runtime.fake_telethon_cls.last_kwargs["connection_retries"] == -1
     assert patched_runtime.fake_telethon_cls.last_kwargs["retry_delay"] == 2.5
@@ -228,6 +229,7 @@ async def test_run_once_restarts_on_polling_failure(patched_runtime):
     with pytest.raises(runtime.RuntimeRestartError, match="polling") as exc_info:
         await runtime._run_once(settings=settings, stop_event=asyncio.Event(), dp=dp)
 
+    assert exc_info.value.task_name == "polling"
     assert isinstance(exc_info.value.__cause__, RuntimeError)
     start_call = patched_runtime.fake_dispatcher_cls.start_polling_calls[0]
     assert start_call["close_bot_session"] is False
@@ -303,6 +305,134 @@ async def test_run_supervised_retries_with_capped_backoff(monkeypatch):
 
     assert attempts["count"] == 3
     assert sleep_delays == [3.0, 5.0]
+    assert fake_lock.released is True
+
+
+async def test_run_supervised_warns_for_telethon_disconnected_restart(monkeypatch):
+    settings = _make_settings(
+        runtime_restart_base_delay_seconds=2.0,
+        runtime_restart_max_delay_seconds=10.0,
+    )
+    attempts = {"count": 0}
+    sleep_delays: list[float] = []
+    warning_calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+    exception_calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+    class FakeDispatcher:
+        def include_router(self, _router):
+            return None
+
+    async def fake_run_once(settings: Settings, stop_event: asyncio.Event, dp) -> bool:
+        del settings, stop_event, dp
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise runtime.RuntimeRestartError(
+                "Runtime task 'telethon-disconnected' failed",
+                task_name="telethon-disconnected",
+            ) from ConnectionError("Not connected")
+        return True
+
+    async def fake_sleep(delay: float):
+        sleep_delays.append(delay)
+
+    def fake_warning(message: str, *args: object, **kwargs: object) -> None:
+        warning_calls.append((message, args, kwargs))
+
+    def fake_exception(message: str, *args: object, **kwargs: object) -> None:
+        exception_calls.append((message, args, kwargs))
+
+    class FakeLock:
+        released = False
+
+        def release(self):
+            self.released = True
+
+    fake_lock = FakeLock()
+
+    monkeypatch.setattr(runtime, "Settings", lambda: settings)
+    monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
+    monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "acquire_runtime_lock", lambda _path: fake_lock)
+    monkeypatch.setattr(runtime, "_run_once", fake_run_once)
+    monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(runtime.logger, "warning", fake_warning)
+    monkeypatch.setattr(runtime.logger, "exception", fake_exception)
+
+    await runtime.run_supervised()
+
+    assert attempts["count"] == 2
+    assert sleep_delays == [2.0]
+    assert len(warning_calls) == 1
+    warning_message, warning_args, warning_kwargs = warning_calls[0]
+    assert warning_message == "Runtime task '%s' failed (%s); restarting in %.1f second(s)"
+    assert warning_args[0] == "telethon-disconnected"
+    assert warning_args[1] == "ConnectionError: Not connected"
+    assert warning_args[2] == 2.0
+    assert warning_kwargs == {}
+    assert exception_calls == []
+    assert fake_lock.released is True
+
+
+async def test_run_supervised_logs_exception_for_non_telethon_restart(monkeypatch):
+    settings = _make_settings(
+        runtime_restart_base_delay_seconds=2.0,
+        runtime_restart_max_delay_seconds=10.0,
+    )
+    attempts = {"count": 0}
+    sleep_delays: list[float] = []
+    warning_calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+    exception_calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+    class FakeDispatcher:
+        def include_router(self, _router):
+            return None
+
+    async def fake_run_once(settings: Settings, stop_event: asyncio.Event, dp) -> bool:
+        del settings, stop_event, dp
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise runtime.RuntimeRestartError(
+                "Runtime task 'polling' failed",
+                task_name="polling",
+            ) from RuntimeError("polling exploded")
+        return True
+
+    async def fake_sleep(delay: float):
+        sleep_delays.append(delay)
+
+    def fake_warning(message: str, *args: object, **kwargs: object) -> None:
+        warning_calls.append((message, args, kwargs))
+
+    def fake_exception(message: str, *args: object, **kwargs: object) -> None:
+        exception_calls.append((message, args, kwargs))
+
+    class FakeLock:
+        released = False
+
+        def release(self):
+            self.released = True
+
+    fake_lock = FakeLock()
+
+    monkeypatch.setattr(runtime, "Settings", lambda: settings)
+    monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
+    monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "acquire_runtime_lock", lambda _path: fake_lock)
+    monkeypatch.setattr(runtime, "_run_once", fake_run_once)
+    monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(runtime.logger, "warning", fake_warning)
+    monkeypatch.setattr(runtime.logger, "exception", fake_exception)
+
+    await runtime.run_supervised()
+
+    assert attempts["count"] == 2
+    assert sleep_delays == [2.0]
+    assert warning_calls == []
+    assert len(exception_calls) == 1
+    exception_message, exception_args, exception_kwargs = exception_calls[0]
+    assert exception_message == "Runtime failed; restarting in %.1f second(s)"
+    assert exception_args == (2.0,)
+    assert exception_kwargs == {}
     assert fake_lock.released is True
 
 

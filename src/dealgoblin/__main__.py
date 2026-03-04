@@ -29,11 +29,21 @@ logging.getLogger("dealgoblin").setLevel(logging.DEBUG)
 
 
 class RuntimeRestartError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, task_name: str | None = None) -> None:
+        super().__init__(message)
+        self.task_name = task_name
 
 
 class BotHealthcheckError(RuntimeError):
     pass
+
+
+def _format_restart_cause(exc: BaseException) -> str:
+    cause = exc.__cause__ or exc
+    message = str(cause).strip()
+    if message:
+        return f"{type(cause).__name__}: {message}"
+    return type(cause).__name__
 
 
 def _install_signal_handlers(stop_event: asyncio.Event) -> None:
@@ -250,8 +260,14 @@ async def _run_once(
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                raise RuntimeRestartError(f"Runtime task '{task_name}' failed") from exc
-            raise RuntimeRestartError(f"Runtime task '{task_name}' stopped unexpectedly")
+                raise RuntimeRestartError(
+                    f"Runtime task '{task_name}' failed",
+                    task_name=task_name,
+                ) from exc
+            raise RuntimeRestartError(
+                f"Runtime task '{task_name}' stopped unexpectedly",
+                task_name=task_name,
+            )
 
         raise RuntimeRestartError("Runtime loop exited unexpectedly")
     finally:
@@ -299,6 +315,27 @@ async def run_supervised() -> None:
                     return
             except asyncio.CancelledError:
                 raise
+            except RuntimeRestartError as exc:
+                if stop_event.is_set():
+                    logger.info("Stop signal is set; exiting supervisor after runtime failure")
+                    return
+                if exc.task_name == "telethon-disconnected":
+                    logger.warning(
+                        "Runtime task '%s' failed (%s); restarting in %.1f second(s)",
+                        exc.task_name,
+                        _format_restart_cause(exc),
+                        restart_delay,
+                    )
+                else:
+                    logger.exception(
+                        "Runtime failed; restarting in %.1f second(s)",
+                        restart_delay,
+                    )
+                await asyncio.sleep(restart_delay)
+                restart_delay = min(
+                    settings.runtime_restart_max_delay_seconds,
+                    restart_delay * 2,
+                )
             except Exception:
                 if stop_event.is_set():
                     logger.info("Stop signal is set; exiting supervisor after runtime failure")

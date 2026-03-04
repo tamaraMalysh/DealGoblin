@@ -1,4 +1,5 @@
 from dealgoblin.bot.helpers import format_search_results, format_source_list
+from dealgoblin.bot.ui import help_support_text
 
 
 def test_format_source_list_empty():
@@ -21,3 +22,9 @@ def test_format_search_results():
     text = format_search_results(results)
     assert "lamp" in text.lower()
     assert "t.me" in text
+
+
+def test_help_support_text_contains_contact_link():
+    text = help_support_text()
+    assert "https://t.me/siberianErmine" in text
+    assert "пока в разработке" not in text

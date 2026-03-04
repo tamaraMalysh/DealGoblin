@@ -128,7 +128,7 @@ def help_info_text() -> str:
 
 
 def help_support_text() -> str:
-    return "Техподдержка: пока в разработке."
+    return "Техподдержка: https://t.me/siberianErmine"
 
 
 def help_secondary_markup() -> InlineKeyboardMarkup:

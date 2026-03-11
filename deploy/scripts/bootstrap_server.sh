@@ -6,6 +6,8 @@ APP_DIR="${APP_DIR:-/opt/dealgoblin}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${APP_DIR}/.env"
 DATA_DIR="${APP_DIR}/data"
+CONTAINER_UID="${CONTAINER_UID:-1000}"
+CONTAINER_GID="${CONTAINER_GID:-1000}"
 SERVICE_NAME="dealgoblin.service"
 SERVICE_SOURCE="${REPO_ROOT}/deploy/systemd/${SERVICE_NAME}"
 SERVICE_TARGET="/etc/systemd/system/${SERVICE_NAME}"
@@ -84,8 +86,9 @@ ensure_app_layout() {
   sudo mkdir -p "${APP_DIR}"
   sudo chown "${USER}:${USER}" "${APP_DIR}"
 
-  mkdir -p "${DATA_DIR}"
-  chmod 700 "${DATA_DIR}"
+  sudo mkdir -p "${DATA_DIR}"
+  sudo chown -R "${CONTAINER_UID}:${CONTAINER_GID}" "${DATA_DIR}"
+  sudo chmod 700 "${DATA_DIR}"
 }
 
 inspect_env_file() {

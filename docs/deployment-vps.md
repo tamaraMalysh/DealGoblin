@@ -47,6 +47,12 @@ chmod +x deploy/scripts/bootstrap_server.sh deploy/scripts/deploy_server.sh
 ./deploy/scripts/bootstrap_server.sh
 ```
 
+If you copied `data/` files onto the server as `root`, ensure the bind-mounted directory remains writable by the container user:
+
+```bash
+sudo chown -R 1000:1000 /opt/dealgoblin/data
+```
+
 ## 4) First Telethon authorization (only when `data/telethon.session` is absent)
 
 ```bash

@@ -143,6 +143,8 @@ class MessageRepo:
         message_id: int,
         text_raw: str | None,
         text_norm: str | None,
+        source_username: str | None = None,
+        source_title: str | None = None,
         author_id: int | None = None,
         author_name_norm: str | None = None,
         dedupe_key: str | None = None,
@@ -153,14 +155,16 @@ class MessageRepo:
             try:
                 async with self._db.execute(
                     "INSERT INTO messages ("
-                    "chat_id, message_id, text_raw, text_norm, author_id, author_name_norm, "
-                    "dedupe_key, link, posted_at"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "chat_id, message_id, text_raw, text_norm, source_username, source_title, "
+                    "author_id, author_name_norm, dedupe_key, link, posted_at"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         chat_id,
                         message_id,
                         text_raw,
                         text_norm,
+                        source_username,
+                        source_title,
                         author_id,
                         author_name_norm,
                         dedupe_key,
@@ -185,6 +189,45 @@ class MessageRepo:
         ) as cur:
             return _rows_to_dicts(cur.description, await cur.fetchall())
 
+    async def search_history(
+        self,
+        fts_query: str,
+        snapshot_max_rowid: int,
+        limit: int,
+        offset: int = 0,
+    ) -> list[dict]:
+        async with self._db.execute(
+            "SELECT m.*, "
+            "COALESCE("
+            "m.source_title, s.title, m.source_username, s.username, CAST(m.chat_id AS TEXT)"
+            ") "
+            "AS source_name, "
+            "bm25(messages_fts) AS rank "
+            "FROM messages_fts f "
+            "JOIN messages m ON f.rowid = m.rowid "
+            "LEFT JOIN sources s ON s.chat_id = m.chat_id "
+            "WHERE messages_fts MATCH ? AND m.rowid <= ? "
+            "ORDER BY rank, m.rowid DESC LIMIT ? OFFSET ?",
+            (fts_query, snapshot_max_rowid, limit, offset),
+        ) as cur:
+            return _rows_to_dicts(cur.description, await cur.fetchall())
+
+    async def count_history_search(self, fts_query: str, snapshot_max_rowid: int) -> int:
+        async with self._db.execute(
+            "SELECT COUNT(*) "
+            "FROM messages_fts f "
+            "JOIN messages m ON f.rowid = m.rowid "
+            "WHERE messages_fts MATCH ? AND m.rowid <= ?",
+            (fts_query, snapshot_max_rowid),
+        ) as cur:
+            row = await cur.fetchone()
+            return int(row[0])
+
+    async def get_max_rowid(self) -> int:
+        async with self._db.execute("SELECT COALESCE(MAX(rowid), 0) FROM messages") as cur:
+            row = await cur.fetchone()
+            return int(row[0])
+
     async def get_by_rowid(self, rowid: int) -> dict | None:
         async with self._db.execute("SELECT * FROM messages WHERE rowid = ?", (rowid,)) as cur:
             row = await cur.fetchone()
@@ -208,6 +251,43 @@ class MessageRepo:
             (limit, offset),
         ) as cur:
             return _rows_to_dicts(cur.description, await cur.fetchall())
+
+
+class SearchSessionRepo:
+    def __init__(self, db: aiosqlite.Connection):
+        self._db = db
+
+    async def create(
+        self,
+        user_id: int,
+        raw_query: str,
+        fts_query: str,
+        snapshot_max_rowid: int,
+        retention_days: int = 7,
+    ) -> int:
+        async def _operation() -> int:
+            await self._db.execute(
+                "DELETE FROM search_sessions WHERE created_at < datetime('now', ?)",
+                (f"-{retention_days} days",),
+            )
+            async with self._db.execute(
+                "INSERT INTO search_sessions (user_id, raw_query, fts_query, snapshot_max_rowid) "
+                "VALUES (?, ?, ?, ?)",
+                (user_id, raw_query, fts_query, snapshot_max_rowid),
+            ) as cur:
+                search_id = cur.lastrowid
+            await self._db.commit()
+            return search_id
+
+        return await _run_write_with_retry(self._db, "search_sessions.create", _operation)
+
+    async def get_for_user(self, search_id: int, user_id: int) -> dict | None:
+        async with self._db.execute(
+            "SELECT * FROM search_sessions WHERE id = ? AND user_id = ?",
+            (search_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(zip([d[0] for d in cur.description], row, strict=True)) if row else None
 
 
 class WatchRepo:

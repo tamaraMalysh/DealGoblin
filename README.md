@@ -4,6 +4,8 @@ Async Telegram flea-market finder.
 
 DealGoblin ingests posts from allowlisted Telegram chats, indexes them in SQLite/FTS5, and provides search + alerting through a Telegram bot.
 
+The bot supports both saved watches for alerts and historical search across all indexed chats.
+
 ## Search Semantics
 
 - Phrase queries match adjacent words in order.

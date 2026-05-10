@@ -6,7 +6,14 @@ import pytest
 import dealgoblin.storage.db as storage_db
 from dealgoblin.ingest.normalize import normalize_text
 from dealgoblin.storage.db import init_db
-from dealgoblin.storage.repo import BotUserRepo, MatchEventRepo, MessageRepo, SourceRepo, WatchRepo
+from dealgoblin.storage.repo import (
+    BotUserRepo,
+    MatchEventRepo,
+    MessageRepo,
+    SearchSessionRepo,
+    SourceRepo,
+    WatchRepo,
+)
 
 
 @pytest.fixture
@@ -26,6 +33,7 @@ async def test_schema_tables_exist(db):
         tables = [row[0] for row in await cur.fetchall()]
     assert "sources" in tables
     assert "messages" in tables
+    assert "search_sessions" in tables
     assert "watches" in tables
     assert "bot_users" in tables
     assert "match_events" in tables
@@ -152,6 +160,63 @@ async def test_init_db_adds_dedupe_columns_and_indexes_to_legacy_messages(db_pat
     async with upgraded.execute("PRAGMA index_list(match_events)") as cur:
         match_event_indexes = {row[1] for row in await cur.fetchall()}
     assert "idx_match_events_watch_created_at" in match_event_indexes
+
+    await upgraded.close()
+
+
+async def test_init_db_adds_source_columns_and_backfills_from_sources(db_path):
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE sources ("
+        "id INTEGER PRIMARY KEY, "
+        "chat_id INTEGER UNIQUE NOT NULL, "
+        "username TEXT, "
+        "title TEXT, "
+        "added_at TEXT NOT NULL DEFAULT (datetime('now'))"
+        ")"
+    )
+    conn.execute(
+        "CREATE TABLE messages ("
+        "rowid INTEGER PRIMARY KEY, "
+        "chat_id INTEGER NOT NULL, "
+        "message_id INTEGER NOT NULL, "
+        "text_raw TEXT, "
+        "text_norm TEXT, "
+        "link TEXT, "
+        "posted_at TEXT, "
+        "ingested_at TEXT NOT NULL DEFAULT (datetime('now')), "
+        "UNIQUE(chat_id, message_id)"
+        ")"
+    )
+    conn.execute(
+        "INSERT INTO sources (chat_id, username, title) VALUES (-1001, 'chan', 'Channel Title')"
+    )
+    conn.execute(
+        "INSERT INTO messages (chat_id, message_id, text_raw, text_norm) "
+        "VALUES (-1001, 10, 'Vintage lamp', 'vintage lamp')"
+    )
+    conn.commit()
+    conn.close()
+
+    upgraded = await init_db(db_path)
+
+    async with upgraded.execute("PRAGMA table_info(messages)") as cur:
+        column_names = {row[1] for row in await cur.fetchall()}
+    assert "source_username" in column_names
+    assert "source_title" in column_names
+
+    async with upgraded.execute(
+        "SELECT source_username, source_title "
+        "FROM messages WHERE chat_id = -1001 AND message_id = 10"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row == ("chan", "Channel Title")
+
+    async with upgraded.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = 'search_sessions'"
+    ) as cur:
+        search_sessions = await cur.fetchone()
+    assert search_sessions is not None
 
     await upgraded.close()
 
@@ -305,12 +370,107 @@ async def test_message_insert_persists_dedupe_fields(db):
     assert row["dedupe_key"] == "abc123"
 
 
+async def test_message_insert_persists_source_metadata(db):
+    repo = MessageRepo(db)
+    rowid = await repo.insert(
+        chat_id=-1001,
+        message_id=12,
+        text_raw="Vintage Lamp 500р",
+        text_norm="vintage lamp 500р",
+        source_username="chan",
+        source_title="Channel Title",
+    )
+    assert rowid is not None
+
+    row = await repo.get_by_rowid(rowid)
+    assert row is not None
+    assert row["source_username"] == "chan"
+    assert row["source_title"] == "Channel Title"
+
+
 async def test_message_insert_duplicate_returns_none(db):
     repo = MessageRepo(db)
     r1 = await repo.insert(chat_id=1, message_id=10, text_raw="a", text_norm="a")
     r2 = await repo.insert(chat_id=1, message_id=10, text_raw="b", text_norm="b")
     assert r1 is not None
     assert r2 is None
+
+
+async def test_search_history_keeps_result_when_source_removed(db):
+    msg_repo = MessageRepo(db)
+    source_repo = SourceRepo(db)
+
+    await source_repo.add(chat_id=-1001, username="chan", title="Channel Title")
+    await msg_repo.insert(
+        chat_id=-1001,
+        message_id=10,
+        text_raw="Vintage lamp",
+        text_norm="vintage lamp",
+        source_username="chan",
+        source_title="Channel Title",
+        link="https://t.me/chan/10",
+    )
+    await source_repo.remove(chat_id=-1001)
+
+    results = await msg_repo.search_history('"vintage lamp"', snapshot_max_rowid=100, limit=10)
+    assert len(results) == 1
+    assert results[0]["source_name"] == "Channel Title"
+    assert results[0]["link"] == "https://t.me/chan/10"
+
+
+async def test_search_history_falls_back_to_source_table_for_legacy_rows(db):
+    source_repo = SourceRepo(db)
+    await source_repo.add(chat_id=-1002, username="legacy", title="Legacy Source")
+    await db.execute(
+        "INSERT INTO messages (chat_id, message_id, text_raw, text_norm, link) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (-1002, 20, "Old table", "old table", "https://t.me/c/1002/20"),
+    )
+    await db.commit()
+
+    results = await MessageRepo(db).search_history('"old table"', snapshot_max_rowid=100, limit=10)
+    assert len(results) == 1
+    assert results[0]["source_name"] == "Legacy Source"
+
+
+async def test_search_history_respects_snapshot_max_rowid(db):
+    repo = MessageRepo(db)
+    first = await repo.insert(chat_id=1, message_id=1, text_raw="lamp", text_norm="lamp")
+    assert first is not None
+    snapshot_max_rowid = first
+    second = await repo.insert(chat_id=1, message_id=2, text_raw="lamp", text_norm="lamp")
+    assert second is not None
+
+    results = await repo.search_history("lamp", snapshot_max_rowid=snapshot_max_rowid, limit=10)
+    assert [row["message_id"] for row in results] == [1]
+
+
+async def test_search_session_repo_creates_fetches_and_prunes_old_sessions(db):
+    user = await BotUserRepo(db).ensure(chat_id=777, tg_user_id=777)
+    repo = SearchSessionRepo(db)
+
+    await db.execute(
+        "INSERT INTO search_sessions "
+        "(user_id, raw_query, fts_query, snapshot_max_rowid, created_at) "
+        "VALUES (?, ?, ?, ?, datetime('now', '-8 days'))",
+        (user["id"], "old", "old", 1),
+    )
+    await db.commit()
+
+    search_id = await repo.create(
+        user_id=user["id"],
+        raw_query="lamp",
+        fts_query="lamp",
+        snapshot_max_rowid=5,
+    )
+
+    row = await repo.get_for_user(search_id=search_id, user_id=user["id"])
+    assert row is not None
+    assert row["raw_query"] == "lamp"
+
+    async with db.execute("SELECT COUNT(*) FROM search_sessions WHERE raw_query = 'old'") as cur:
+        old_count = await cur.fetchone()
+    assert old_count[0] == 0
 
 
 async def test_watch_crud(db):

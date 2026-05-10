@@ -19,3 +19,9 @@ class KeywordsCallback(CallbackData, prefix="keywords"):
 
 class HelpCallback(CallbackData, prefix="help"):
     action: str
+
+
+class SearchCallback(CallbackData, prefix="search"):
+    action: str
+    search_id: int = 0
+    page: int = 1

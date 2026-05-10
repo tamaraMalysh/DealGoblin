@@ -48,9 +48,15 @@ class Collector:
                 continue
 
             username = getattr(chat, "username", None)
+            title = getattr(chat, "title", None) or username
             inserted = 0
             async for msg in self._client.iter_messages(chat, limit=limit):
-                rowid = await self._ingest_message(chat_id=chat_id, message=msg, username=username)
+                rowid = await self._ingest_message(
+                    chat_id=chat_id,
+                    message=msg,
+                    username=username,
+                    title=title,
+                )
                 if rowid is not None:
                     inserted += 1
             logger.info("Backfilled %d messages from source %s", inserted, chat_id)
@@ -64,11 +70,23 @@ class Collector:
         chat = await event.get_chat()
         msg = event.message
         username = getattr(chat, "username", None)
-        rowid = await self._ingest_message(chat_id=chat_id, message=msg, username=username)
+        title = getattr(chat, "title", None) or username
+        rowid = await self._ingest_message(
+            chat_id=chat_id,
+            message=msg,
+            username=username,
+            title=title,
+        )
         if rowid is None:
             return
 
-    async def _ingest_message(self, chat_id: int, message, username: str | None) -> int | None:
+    async def _ingest_message(
+        self,
+        chat_id: int,
+        message,
+        username: str | None,
+        title: str | None,
+    ) -> int | None:
         if not message.text:
             return None
         link = build_message_link(username, chat_id, message.id)
@@ -87,6 +105,8 @@ class Collector:
             message_id=message.id,
             text_raw=message.text,
             text_norm=text_norm,
+            source_username=username,
+            source_title=title,
             author_id=author_id,
             author_name_norm=author_name_norm,
             dedupe_key=dedupe_key,

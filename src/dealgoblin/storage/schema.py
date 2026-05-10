@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS messages (
     message_id INTEGER NOT NULL,
     text_raw TEXT,
     text_norm TEXT,
+    source_username TEXT,
+    source_title TEXT,
     author_id INTEGER,
     author_name_norm TEXT,
     dedupe_key TEXT,
@@ -49,6 +51,15 @@ CREATE TABLE IF NOT EXISTS bot_users (
     chat_id INTEGER UNIQUE NOT NULL,
     city TEXT NOT NULL DEFAULT 'Тбилиси',
     subscription TEXT NOT NULL DEFAULT 'FREE',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS search_sessions (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES bot_users(id) ON DELETE CASCADE,
+    raw_query TEXT NOT NULL,
+    fts_query TEXT NOT NULL,
+    snapshot_max_rowid INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

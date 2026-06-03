@@ -125,25 +125,21 @@ async def _set_runtime_meta(conn: aiosqlite.Connection, key: str, value: str) ->
     )
 
 
-async def _ensure_message_dedupe_columns(conn: aiosqlite.Connection) -> bool:
+async def _ensure_message_dedupe_columns(conn: aiosqlite.Connection) -> None:
     async with conn.execute("PRAGMA table_info(messages)") as cur:
         rows = await cur.fetchall()
     existing_columns = {str(row[1]) for row in rows}
 
-    added_source_columns = False
     if "source_username" not in existing_columns:
         await conn.execute("ALTER TABLE messages ADD COLUMN source_username TEXT")
-        added_source_columns = True
     if "source_title" not in existing_columns:
         await conn.execute("ALTER TABLE messages ADD COLUMN source_title TEXT")
-        added_source_columns = True
     if "author_id" not in existing_columns:
         await conn.execute("ALTER TABLE messages ADD COLUMN author_id INTEGER")
     if "author_name_norm" not in existing_columns:
         await conn.execute("ALTER TABLE messages ADD COLUMN author_name_norm TEXT")
     if "dedupe_key" not in existing_columns:
         await conn.execute("ALTER TABLE messages ADD COLUMN dedupe_key TEXT")
-    return added_source_columns
 
 
 async def _ensure_message_fts_update_trigger(conn: aiosqlite.Connection) -> None:
@@ -187,15 +183,7 @@ async def _backfill_message_source_metadata(conn: aiosqlite.Connection) -> None:
     )
 
 
-async def _ensure_message_fts_synced(
-    conn: aiosqlite.Connection,
-    *,
-    force_rebuild: bool = False,
-) -> None:
-    if force_rebuild:
-        await conn.execute("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
-        return
-
+async def _ensure_message_fts_synced(conn: aiosqlite.Connection) -> None:
     async with conn.execute("SELECT COUNT(*) FROM messages") as cur:
         messages_row = await cur.fetchone()
     async with conn.execute("SELECT COUNT(*) FROM messages_fts") as cur:
@@ -279,9 +267,11 @@ async def _init_db_once(path: str, busy_timeout_ms: int) -> aiosqlite.Connection
         await conn.execute("PRAGMA foreign_keys=ON")
         await conn.executescript(SCHEMA_SQL)
         await _ensure_runtime_meta_table(conn)
-        added_source_columns = await _ensure_message_dedupe_columns(conn)
+        await _ensure_message_dedupe_columns(conn)
         await _ensure_message_fts_update_trigger(conn)
-        await _ensure_message_fts_synced(conn, force_rebuild=added_source_columns)
+        # FTS indexes only `text_norm`; adding source columns doesn't change it,
+        # so let the row-count check decide whether a rebuild is actually needed.
+        await _ensure_message_fts_synced(conn)
         await _backfill_message_source_metadata(conn)
         await _ensure_runtime_indexes(conn)
         await _assert_integrity_ok(conn)

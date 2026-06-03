@@ -163,8 +163,7 @@ async def _ensure_runtime_indexes(conn: aiosqlite.Connection) -> None:
     # primary key, so a `created_at`-leading index is what actually gets used.
     await conn.execute("DROP INDEX IF EXISTS idx_search_sessions_user_created_at")
     await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_search_sessions_created_at "
-        "ON search_sessions(created_at)"
+        "CREATE INDEX IF NOT EXISTS idx_search_sessions_created_at ON search_sessions(created_at)"
     )
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_match_events_watch_created_at "

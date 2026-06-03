@@ -39,7 +39,8 @@ CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
         VALUES('delete', old.rowid, old.text_norm);
 END;
 
-CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF text_norm ON messages
+WHEN old.text_norm IS NOT new.text_norm BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, text_norm)
         VALUES('delete', old.rowid, old.text_norm);
     INSERT INTO messages_fts(rowid, text_norm) VALUES (new.rowid, new.text_norm);

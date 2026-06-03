@@ -146,11 +146,29 @@ async def _ensure_message_dedupe_columns(conn: aiosqlite.Connection) -> bool:
     return added_source_columns
 
 
+async def _ensure_message_fts_update_trigger(conn: aiosqlite.Connection) -> None:
+    # Existing databases may carry the unguarded `AFTER UPDATE ON messages`
+    # trigger, which re-syncs FTS for every column change (e.g. the source
+    # metadata backfill). Recreate it so it only fires when `text_norm` changes.
+    await conn.execute("DROP TRIGGER IF EXISTS messages_au")
+    await conn.execute(
+        "CREATE TRIGGER messages_au AFTER UPDATE OF text_norm ON messages "
+        "WHEN old.text_norm IS NOT new.text_norm BEGIN "
+        "INSERT INTO messages_fts(messages_fts, rowid, text_norm) "
+        "VALUES('delete', old.rowid, old.text_norm); "
+        "INSERT INTO messages_fts(rowid, text_norm) VALUES (new.rowid, new.text_norm); "
+        "END"
+    )
+
+
 async def _ensure_runtime_indexes(conn: aiosqlite.Connection) -> None:
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_dedupe_key ON messages(dedupe_key)")
+    # Session pruning deletes by `created_at < ...`; `get_for_user` looks up by
+    # primary key, so a `created_at`-leading index is what actually gets used.
+    await conn.execute("DROP INDEX IF EXISTS idx_search_sessions_user_created_at")
     await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_search_sessions_user_created_at "
-        "ON search_sessions(user_id, created_at)"
+        "CREATE INDEX IF NOT EXISTS idx_search_sessions_created_at "
+        "ON search_sessions(created_at)"
     )
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_match_events_watch_created_at "
@@ -262,6 +280,7 @@ async def _init_db_once(path: str, busy_timeout_ms: int) -> aiosqlite.Connection
         await conn.executescript(SCHEMA_SQL)
         await _ensure_runtime_meta_table(conn)
         added_source_columns = await _ensure_message_dedupe_columns(conn)
+        await _ensure_message_fts_update_trigger(conn)
         await _ensure_message_fts_synced(conn, force_rebuild=added_source_columns)
         await _backfill_message_source_metadata(conn)
         await _ensure_runtime_indexes(conn)

@@ -14,6 +14,9 @@ These are default conventions for the current greenfield state and should be ali
 - Keep changes focused and minimal for the requested task.
 - Update docs when behavior, commands, or workflows change.
 - Do not introduce conflicting command variants across docs.
+- Validate feature work locally with automated checks before pushing.
+- Keep production SQLite and Telethon session state isolated from local development.
+- Prefer production releases from `main` via the manual GitHub Actions deploy workflow after CI passes.
 - Source ingestion allowlist is env-driven (`SOURCE_CHAT_IDS`), not runtime bot commands.
 
 ## Definition of Done

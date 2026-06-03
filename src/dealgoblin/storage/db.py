@@ -130,6 +130,10 @@ async def _ensure_message_dedupe_columns(conn: aiosqlite.Connection) -> None:
         rows = await cur.fetchall()
     existing_columns = {str(row[1]) for row in rows}
 
+    if "source_username" not in existing_columns:
+        await conn.execute("ALTER TABLE messages ADD COLUMN source_username TEXT")
+    if "source_title" not in existing_columns:
+        await conn.execute("ALTER TABLE messages ADD COLUMN source_title TEXT")
     if "author_id" not in existing_columns:
         await conn.execute("ALTER TABLE messages ADD COLUMN author_id INTEGER")
     if "author_name_norm" not in existing_columns:
@@ -138,12 +142,58 @@ async def _ensure_message_dedupe_columns(conn: aiosqlite.Connection) -> None:
         await conn.execute("ALTER TABLE messages ADD COLUMN dedupe_key TEXT")
 
 
+async def _ensure_message_fts_update_trigger(conn: aiosqlite.Connection) -> None:
+    # Existing databases may carry the unguarded `AFTER UPDATE ON messages`
+    # trigger, which re-syncs FTS for every column change (e.g. the source
+    # metadata backfill). Recreate it so it only fires when `text_norm` changes.
+    await conn.execute("DROP TRIGGER IF EXISTS messages_au")
+    await conn.execute(
+        "CREATE TRIGGER messages_au AFTER UPDATE OF text_norm ON messages "
+        "WHEN old.text_norm IS NOT new.text_norm BEGIN "
+        "INSERT INTO messages_fts(messages_fts, rowid, text_norm) "
+        "VALUES('delete', old.rowid, old.text_norm); "
+        "INSERT INTO messages_fts(rowid, text_norm) VALUES (new.rowid, new.text_norm); "
+        "END"
+    )
+
+
 async def _ensure_runtime_indexes(conn: aiosqlite.Connection) -> None:
     await conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_dedupe_key ON messages(dedupe_key)")
+    # Session pruning deletes by `created_at < ...`; `get_for_user` looks up by
+    # primary key, so a `created_at`-leading index is what actually gets used.
+    await conn.execute("DROP INDEX IF EXISTS idx_search_sessions_user_created_at")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_sessions_created_at ON search_sessions(created_at)"
+    )
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_match_events_watch_created_at "
         "ON match_events(watch_id, created_at)"
     )
+
+
+async def _backfill_message_source_metadata(conn: aiosqlite.Connection) -> None:
+    await conn.execute(
+        "UPDATE messages AS m "
+        "SET source_username = COALESCE(m.source_username, s.username), "
+        "source_title = COALESCE(m.source_title, s.title) "
+        "FROM sources AS s "
+        "WHERE s.chat_id = m.chat_id "
+        "AND (m.source_username IS NULL OR m.source_title IS NULL)"
+    )
+
+
+async def _ensure_message_fts_synced(conn: aiosqlite.Connection) -> None:
+    async with conn.execute("SELECT COUNT(*) FROM messages") as cur:
+        messages_row = await cur.fetchone()
+    async with conn.execute("SELECT COUNT(*) FROM messages_fts") as cur:
+        fts_row = await cur.fetchone()
+
+    messages_count = int(messages_row[0]) if messages_row else 0
+    fts_count = int(fts_row[0]) if fts_row else 0
+    if messages_count == fts_count:
+        return
+
+    await conn.execute("INSERT INTO messages_fts(messages_fts) VALUES ('rebuild')")
 
 
 async def _reindex_messages_if_needed(conn: aiosqlite.Connection) -> None:
@@ -211,13 +261,18 @@ async def _reindex_messages_if_needed(conn: aiosqlite.Connection) -> None:
 async def _init_db_once(path: str, busy_timeout_ms: int) -> aiosqlite.Connection:
     conn = await aiosqlite.connect(path, timeout=busy_timeout_ms / 1000)
     try:
-        await conn.executescript(SCHEMA_SQL)
-        await _ensure_runtime_meta_table(conn)
-        await _ensure_message_dedupe_columns(conn)
-        await _ensure_runtime_indexes(conn)
         await conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.executescript(SCHEMA_SQL)
+        await _ensure_runtime_meta_table(conn)
+        await _ensure_message_dedupe_columns(conn)
+        await _ensure_message_fts_update_trigger(conn)
+        # FTS indexes only `text_norm`; adding source columns doesn't change it,
+        # so let the row-count check decide whether a rebuild is actually needed.
+        await _ensure_message_fts_synced(conn)
+        await _backfill_message_source_metadata(conn)
+        await _ensure_runtime_indexes(conn)
         await _assert_integrity_ok(conn)
         await _reindex_messages_if_needed(conn)
         await conn.commit()

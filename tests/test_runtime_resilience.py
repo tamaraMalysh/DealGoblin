@@ -559,6 +559,55 @@ async def test_shutdown_polling_calls_stop_before_cancel_fallback(monkeypatch):
     assert cancel_targets == ["polling"]
 
 
+async def test_run_supervised_stops_on_unrecoverable_auth_error(monkeypatch):
+    from telethon.errors import AuthKeyDuplicatedError
+
+    settings = _make_settings(
+        runtime_restart_base_delay_seconds=2.0,
+        runtime_restart_max_delay_seconds=10.0,
+    )
+    attempts = {"count": 0}
+    critical_calls: list[tuple[str, tuple[object, ...]]] = []
+
+    class FakeDispatcher:
+        def include_router(self, _router):
+            return None
+
+    async def fake_run_once(settings: Settings, stop_event: asyncio.Event, dp) -> bool:
+        del settings, stop_event, dp
+        attempts["count"] += 1
+        raise AuthKeyDuplicatedError(request=None)
+
+    async def fake_sleep(_delay: float):
+        raise AssertionError("supervisor must not restart on an unrecoverable auth error")
+
+    def fake_critical(message: str, *args: object, **_kwargs: object) -> None:
+        critical_calls.append((message, args))
+
+    class FakeLock:
+        released = False
+
+        def release(self):
+            self.released = True
+
+    fake_lock = FakeLock()
+
+    monkeypatch.setattr(runtime, "Settings", lambda: settings)
+    monkeypatch.setattr(runtime, "_install_signal_handlers", lambda _stop_event: None)
+    monkeypatch.setattr(runtime, "Dispatcher", FakeDispatcher)
+    monkeypatch.setattr(runtime, "acquire_runtime_lock", lambda _path: fake_lock)
+    monkeypatch.setattr(runtime, "_run_once", fake_run_once)
+    monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(runtime.logger, "critical", fake_critical)
+
+    with pytest.raises(runtime.UnrecoverableRuntimeError):
+        await runtime.run_supervised()
+
+    assert attempts["count"] == 1
+    assert len(critical_calls) == 1
+    assert fake_lock.released is True
+
+
 async def test_run_supervised_exits_when_runtime_lock_is_held(monkeypatch):
     settings = _make_settings()
     run_once_calls = {"count": 0}

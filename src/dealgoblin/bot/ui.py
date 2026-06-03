@@ -7,8 +7,10 @@ from dealgoblin.bot.callbacks import (
     HelpCallback,
     KeywordsCallback,
     MenuCallback,
+    SearchCallback,
     SettingsCallback,
 )
+from dealgoblin.search.service import SearchResultPage
 
 KEYWORDS_PAGE_SIZE = 6
 
@@ -19,6 +21,7 @@ def main_menu_text() -> str:
 
 def main_menu_markup() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text="Поиск", callback_data=MenuCallback(action="search"))
     builder.button(text="Настройки", callback_data=MenuCallback(action="settings"))
     builder.button(text="Статистика чатов", callback_data=MenuCallback(action="stats"))
     builder.button(text="Помощь", callback_data=MenuCallback(action="help"))
@@ -94,8 +97,9 @@ def help_text() -> str:
     return (
         "Меня настроить очень просто. Я помогу Вам это сделать в несколько шагов!\n"
         '🌱 1. Перейдите в "Настройки" (город сейчас по умолчанию: Тбилиси).\n'
-        '🌱 2. В пункте "Добавить/удалить поисковые слова" добавьте поисковое слово/фразу.\n'
-        "🌱 3. Там же можно удалить слово, если оно больше не нужно.\n\n"
+        '🌱 2. В пункте "Добавить/удалить поисковые слова" добавьте поисковое слово/фразу. '
+        "Там же можно удалить слово, если оно больше не нужно.\n"
+        '🌱 3. В меню "Поиск" можно искать по истории всех проиндексированных чатов.\n\n'
         "Как я ищу слова в объявлениях:\n"
         '🍏 запрос "стиральная машина" ищет объявления, в которых есть:\n'
         "  - стиральная машина\n"
@@ -123,7 +127,8 @@ def help_info_text() -> str:
         "Информация о поиске:\n"
         "- фраза ищется подряд в заданном порядке;\n"
         "- формы слов допускаются (например: стиральная/стиральную);\n"
-        "- минус-слова убирают совпадения."
+        "- минус-слова убирают совпадения;\n"
+        "- эти правила одинаковы для сохраненных слов и исторического поиска."
     )
 
 
@@ -134,6 +139,64 @@ def help_support_text() -> str:
 def help_secondary_markup() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="<< Назад", callback_data=MenuCallback(action="help"))
+    return builder.as_markup()
+
+
+def search_prompt_text() -> str:
+    return (
+        "🔎 Исторический поиск\n\n"
+        "Введите фразу для поиска по всем проиндексированным чатам.\n"
+        "Можно использовать минус-слова, например: mac laptop -broken"
+    )
+
+
+def search_prompt_markup() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="<< Назад", callback_data=SearchCallback(action="back"))
+    return builder.as_markup()
+
+
+def search_results_text(page: SearchResultPage) -> str:
+    pages = max(1, (page.total + page.page_size - 1) // page.page_size)
+    header = (
+        "🔎 Исторический поиск\n"
+        f"Запрос: {page.raw_query}\n"
+        f"Найдено: {page.total}\n"
+        f"Страница {page.page}/{pages}"
+    )
+    if not page.items:
+        return header + "\n\nНичего не найдено."
+
+    divider = "➖➖➖➖➖➖➖➖➖➖"
+    blocks: list[str] = []
+    for item in page.items:
+        snippet = (item.text_raw or "")[:120]
+        block = [f"- {item.source_name}", f"  {snippet}"]
+        if item.link:
+            block.append(f"  {item.link}")
+        blocks.append("\n".join(block))
+    return header + "\n\n" + f"\n{divider}\n".join(blocks)
+
+
+def search_results_markup(page: SearchResultPage) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if page.has_prev:
+        builder.button(
+            text="◀️",
+            callback_data=SearchCallback(
+                action="page", search_id=page.search_id, page=page.page - 1
+            ),
+        )
+    if page.has_next:
+        builder.button(
+            text="▶️",
+            callback_data=SearchCallback(
+                action="page", search_id=page.search_id, page=page.page + 1
+            ),
+        )
+    builder.button(text="Новый поиск", callback_data=SearchCallback(action="new"))
+    builder.button(text="<< Назад", callback_data=SearchCallback(action="back"))
+    builder.adjust(2, 1, 1)
     return builder.as_markup()
 
 

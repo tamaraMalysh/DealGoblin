@@ -14,7 +14,6 @@ from dealgoblin.bot.callbacks import (
 from dealgoblin.bot.context import ensure_user, get_repos
 from dealgoblin.bot.handlers_keywords import render_keywords_screen
 from dealgoblin.bot.helpers import (
-    format_search_results,
     format_source_list,
     format_watch_list,
 )
@@ -246,13 +245,3 @@ async def cmd_watch_remove(message: Message, db: aiosqlite.Connection):
     user = await ensure_user(db, message)
     await get_repos(db)["watch"].remove_for_user(int(args[1]), user["id"])
     await message.answer(f"Watch #{args[1]} removed.")
-
-
-@router.message(Command("search"))
-async def cmd_search(message: Message, db: aiosqlite.Connection):
-    args = (message.text or "").split(maxsplit=1)
-    if len(args) < 2:
-        await message.answer("Usage: /search <query>")
-        return
-    results = await get_repos(db)["message"].search_fts(args[1], limit=10)
-    await message.answer(format_search_results(results))

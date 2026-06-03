@@ -7,6 +7,8 @@ This project is designed to run as a single long-lived process with persistent l
 
 Use a single always-on VPS with local SSD storage and run one container replica.
 
+Production state stays on the VPS. Do not copy `data/dealgoblin.sqlite3` or `data/telethon.session` to a local machine, and do not run the production bot token locally while this runtime is active.
+
 ## Recommended Host
 
 - Ubuntu `24.04` LTS
@@ -45,6 +47,12 @@ The bootstrap script validates Ubuntu, installs Docker + Compose if missing, pre
 ```bash
 chmod +x deploy/scripts/bootstrap_server.sh deploy/scripts/deploy_server.sh
 ./deploy/scripts/bootstrap_server.sh
+```
+
+If you copied `data/` files onto the server as `root`, ensure the bind-mounted directory remains writable by the container user:
+
+```bash
+sudo chown -R 1000:1000 /opt/dealgoblin/data
 ```
 
 ## 4) First Telethon authorization (only when `data/telethon.session` is absent)
@@ -104,6 +112,35 @@ After secrets are set:
 3. Click `Run workflow`.
 4. Keep default `ref=main` unless intentionally deploying another branch.
 
+## Local-First Release Workflow
+
+Use local automated verification before each production deploy:
+
+1. Run the smallest relevant local check first when the change is narrowly scoped.
+2. Run the local gate:
+
+```bash
+uv run ruff format --check src/ tests/
+uv run ruff check src/ tests/
+uv run pytest -q
+```
+
+3. If the change touches runtime, auth, deployment, or other security-sensitive code, also run:
+
+```bash
+uv run bandit -q -r src/dealgoblin -ll -ii
+```
+
+4. Push the branch, merge to `main` only after GitHub Actions `CI` is green, then run GitHub Actions workflow `Deploy` with `ref=main`.
+
+Local verification for this deployment profile is automated only. If you ever need a local manual runtime, use separate local-only paths such as:
+
+```env
+DB_PATH=data/local/dealgoblin.sqlite3
+SESSION_PATH=data/local/telethon.session
+RUNTIME_LOCK_PATH=data/local/runtime.lock
+```
+
 ## Operations
 
 - Deploy on server: `./deploy/scripts/deploy_server.sh main`
@@ -119,6 +156,27 @@ If logs show `TelegramConflictError: terminated by other getUpdates request`:
 2. Keep exactly one DealGoblin runtime active for the bot token.
 3. Restart the surviving service once: `docker compose restart dealgoblin`.
 4. Verify recovery by tailing logs for at least 10 minutes and ensuring conflict lines do not recur.
+
+After every production deploy, confirm:
+
+1. `docker compose ps` shows one active service replica.
+2. Recent logs do not show `TelegramConflictError`.
+3. Logs show Telethon connection, bot polling, and notifier startup.
+
+## Duplicated Telethon Session Runbook
+
+If logs show `AuthKeyDuplicatedError: ... used under two different IP addresses`,
+the Telethon session file was used by two instances at once (commonly local
+development connecting while production runs). Telegram permanently invalidates
+the auth key, so the supervisor does not restart — it logs a critical message
+and exits non-zero.
+
+1. Stop the duplicate instance (local process or extra host); keep one runtime
+   per session file.
+2. Re-authorize Telethon — see "First Telethon authorization" above; the
+   invalidated `data/telethon.session` must be regenerated.
+3. Restart the surviving service: `docker compose restart dealgoblin`.
+4. Verify logs show a clean Telethon connection with no `AuthKeyDuplicatedError`.
 
 ## SQLite Decision and Migration Trigger
 

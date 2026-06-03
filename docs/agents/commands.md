@@ -31,6 +31,16 @@ uv run bandit -q -r src/dealgoblin -ll -ii
 uv export --frozen --format requirements.txt --extra dev --no-emit-project --output-file /tmp/requirements-deps.txt
 uv run pip-audit --strict -r /tmp/requirements-deps.txt --no-deps
 
+## Local Release Gate
+1. Run the smallest relevant local test or check first when the change is narrowly scoped.
+2. Run the default pre-push gate:
+   - `uv run ruff format --check src/ tests/`
+   - `uv run ruff check src/ tests/`
+   - `uv run pytest -q`
+3. If the change touches runtime, auth, deployment, or other security-sensitive code, also run:
+   - `uv run bandit -q -r src/dealgoblin -ll -ii`
+4. Push the branch, merge to `main` after GitHub Actions `CI` passes, then run GitHub Actions workflow `Deploy` with `ref=main`.
+
 ## CI Quality Gates (GitHub Actions)
 Workflow: `.github/workflows/ci.yml` (`CI` / `quality`)
 
@@ -69,6 +79,9 @@ docker compose run --rm dealgoblin \
 - Start from `.env.example` when creating `.env`.
 - Docker runtime expects `.env` for secrets/config and mounts `./data` to persist SQLite + Telethon session files.
 - GitHub Actions manual deploy workflow is `.github/workflows/deploy.yml` (`workflow_dispatch`) and executes `deploy/scripts/deploy_server.sh` on the VPS over SSH.
+- Local verification is automated-only for production releases; do not run live Telegram pre-prod checks against the production bot/token.
+- Never copy the production `data/dealgoblin.sqlite3` or `data/telethon.session` files to a local machine.
+- If a local manual runtime is required, isolate it with local-only paths such as `DB_PATH=data/local/dealgoblin.sqlite3`, `SESSION_PATH=data/local/telethon.session`, and `RUNTIME_LOCK_PATH=data/local/runtime.lock`.
 - First Telethon user-auth flow in Docker should be completed with `docker compose run --rm dealgoblin`; session files persist in `./data`.
 - Never run `docker compose run --rm dealgoblin` concurrently with `docker compose up -d`; long-polling bots must run as a single active instance per token.
 - Optional startup backfill depth is `SOURCE_BACKFILL_LIMIT` (default `100`).

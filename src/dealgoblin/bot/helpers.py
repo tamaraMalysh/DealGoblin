@@ -16,9 +16,13 @@ def format_search_results(results: list[dict]) -> str:
         return "No results found."
     lines = []
     for r in results:
+        source_name = r.get("source_name")
         snippet = (r.get("text_raw") or "")[:120]
         link = r.get("link") or ""
-        lines.append(f"- {snippet}\n  {link}")
+        if source_name:
+            lines.append(f"- {source_name}\n  {snippet}\n  {link}")
+        else:
+            lines.append(f"- {snippet}\n  {link}")
     return "\n\n".join(lines)
 
 

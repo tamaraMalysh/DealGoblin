@@ -103,6 +103,8 @@ async def test_collector_start_runs_backfill_and_dedupes(db):
     assert len(ingested) == 2
     count = await MessageRepo(db).count_all()
     assert count == 2
+    rows = await MessageRepo(db).list_recent(limit=10)
+    assert {row["source_username"] for row in rows} == {"chan"}
 
 
 def test_normalize_source_arg():

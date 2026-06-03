@@ -167,15 +167,15 @@ def search_results_text(page: SearchResultPage) -> str:
     if not page.items:
         return header + "\n\nНичего не найдено."
 
-    lines = [header, ""]
+    divider = "➖➖➖➖➖➖➖➖➖➖"
+    blocks: list[str] = []
     for item in page.items:
         snippet = (item.text_raw or "")[:120]
-        lines.append(f"- {item.source_name}")
-        lines.append(f"  {snippet}")
+        block = [f"- {item.source_name}", f"  {snippet}"]
         if item.link:
-            lines.append(f"  {item.link}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
+            block.append(f"  {item.link}")
+        blocks.append("\n".join(block))
+    return header + "\n\n" + f"\n{divider}\n".join(blocks)
 
 
 def search_results_markup(page: SearchResultPage) -> InlineKeyboardMarkup:

@@ -8,6 +8,15 @@ from contextlib import suppress
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, MenuButtonCommands
 from telethon import TelegramClient
+from telethon.errors import (
+    AuthKeyDuplicatedError,
+    AuthKeyUnregisteredError,
+    PhoneNumberBannedError,
+    SessionExpiredError,
+    SessionRevokedError,
+    UserDeactivatedBanError,
+    UserDeactivatedError,
+)
 
 from dealgoblin.bot.handlers import router
 from dealgoblin.bot.notifier import Notifier
@@ -36,6 +45,58 @@ class RuntimeRestartError(RuntimeError):
 
 class BotHealthcheckError(RuntimeError):
     pass
+
+
+class UnrecoverableRuntimeError(RuntimeError):
+    """Raised when the runtime hits an error that restarting cannot fix."""
+
+
+# Telethon errors that permanently invalidate the session. Restarting only
+# retries the same broken session, so the supervisor must stop instead of
+# looping. The session has to be re-authenticated, and only one instance may
+# use a given session file at a time (local development must stay isolated
+# from production).
+_UNRECOVERABLE_AUTH_ERRORS = (
+    AuthKeyDuplicatedError,
+    AuthKeyUnregisteredError,
+    SessionExpiredError,
+    SessionRevokedError,
+    UserDeactivatedError,
+    UserDeactivatedBanError,
+    PhoneNumberBannedError,
+)
+
+
+def _find_unrecoverable_auth_error(exc: BaseException) -> BaseException | None:
+    stack: list[BaseException] = [exc]
+    visited: set[int] = set()
+    while stack:
+        current = stack.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+
+        if isinstance(current, _UNRECOVERABLE_AUTH_ERRORS):
+            return current
+
+        for nested in (current.__cause__, current.__context__):
+            if isinstance(nested, BaseException):
+                stack.append(nested)
+    return None
+
+
+def _raise_if_unrecoverable(exc: BaseException) -> None:
+    fatal = _find_unrecoverable_auth_error(exc)
+    if fatal is None:
+        return
+    logger.critical(
+        "Telethon session can no longer be used (%s). This usually means the same "
+        "session file is in use by another running instance (e.g. local development "
+        "and production at the same time). Stop the duplicate instance and "
+        "re-authenticate the Telethon session; not restarting automatically.",
+        _format_restart_cause(fatal),
+    )
+    raise UnrecoverableRuntimeError(_format_restart_cause(fatal)) from exc
 
 
 def _format_restart_cause(exc: BaseException) -> str:
@@ -319,6 +380,7 @@ async def run_supervised() -> None:
                 if stop_event.is_set():
                     logger.info("Stop signal is set; exiting supervisor after runtime failure")
                     return
+                _raise_if_unrecoverable(exc)
                 if exc.task_name == "telethon-disconnected":
                     logger.warning(
                         "Runtime task '%s' failed (%s); restarting in %.1f second(s)",
@@ -336,10 +398,11 @@ async def run_supervised() -> None:
                     settings.runtime_restart_max_delay_seconds,
                     restart_delay * 2,
                 )
-            except Exception:
+            except Exception as exc:
                 if stop_event.is_set():
                     logger.info("Stop signal is set; exiting supervisor after runtime failure")
                     return
+                _raise_if_unrecoverable(exc)
                 logger.exception(
                     "Runtime failed; restarting in %.1f second(s)",
                     restart_delay,
@@ -363,6 +426,9 @@ def main() -> None:
         asyncio.run(run_supervised())
     except RuntimeInstanceLockedError as exc:
         logger.error("%s", exc)
+        raise SystemExit(1) from exc
+    except UnrecoverableRuntimeError as exc:
+        logger.error("Exiting: %s", exc)
         raise SystemExit(1) from exc
     except KeyboardInterrupt:
         logger.info("Interrupted by user (Ctrl+C)")

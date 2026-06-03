@@ -163,6 +163,21 @@ After every production deploy, confirm:
 2. Recent logs do not show `TelegramConflictError`.
 3. Logs show Telethon connection, bot polling, and notifier startup.
 
+## Duplicated Telethon Session Runbook
+
+If logs show `AuthKeyDuplicatedError: ... used under two different IP addresses`,
+the Telethon session file was used by two instances at once (commonly local
+development connecting while production runs). Telegram permanently invalidates
+the auth key, so the supervisor does not restart — it logs a critical message
+and exits non-zero.
+
+1. Stop the duplicate instance (local process or extra host); keep one runtime
+   per session file.
+2. Re-authorize Telethon — see "First Telethon authorization" above; the
+   invalidated `data/telethon.session` must be regenerated.
+3. Restart the surviving service: `docker compose restart dealgoblin`.
+4. Verify logs show a clean Telethon connection with no `AuthKeyDuplicatedError`.
+
 ## SQLite Decision and Migration Trigger
 
 SQLite is the default for now because:

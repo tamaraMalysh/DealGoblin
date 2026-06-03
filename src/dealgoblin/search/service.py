@@ -78,16 +78,22 @@ class HistorySearchService:
         if session is None:
             raise SearchAccessError("Search session not found for this user")
 
+        total = await self._messages.count_history_search(
+            fts_query=str(session["fts_query"]),
+            snapshot_max_rowid=int(session["snapshot_max_rowid"]),
+        )
+        if total <= 0:
+            page = 1
+        else:
+            max_page = (total + self._page_size - 1) // self._page_size
+            page = min(page, max_page)
+
         offset = (page - 1) * self._page_size
         rows = await self._messages.search_history(
             fts_query=str(session["fts_query"]),
             snapshot_max_rowid=int(session["snapshot_max_rowid"]),
             limit=self._page_size,
             offset=offset,
-        )
-        total = await self._messages.count_history_search(
-            fts_query=str(session["fts_query"]),
-            snapshot_max_rowid=int(session["snapshot_max_rowid"]),
         )
         items = [
             SearchResultItem(

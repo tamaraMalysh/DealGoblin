@@ -163,6 +163,18 @@ After every production deploy, confirm:
 2. Recent logs do not show `TelegramConflictError`.
 3. Logs show Telethon connection, bot polling, and notifier startup.
 
+## Notification Queue Recovery
+
+If logs show `Forbidden: bot was blocked by the user`, the notifier skips that
+notification and continues delivering to other recipients. Skipped events use the
+existing `notified_at` completion marker; they are not retried, but the user's
+watches stay enabled so new matches can be delivered after they unblock the bot.
+Other send errors leave events pending for retry.
+
+Before restoring a stalled queue, check how many pending events have accumulated
+and decide whether to deliver or skip the old backlog. Restarting alone does not
+remove pending events and may send many old notifications once the queue resumes.
+
 ## Duplicated Telethon Session Runbook
 
 If logs show `AuthKeyDuplicatedError: ... used under two different IP addresses`,

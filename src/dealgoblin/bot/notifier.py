@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
 
 from dealgoblin.storage.db import is_sqlite_corruption_error
 from dealgoblin.storage.repo import MatchEventRepo, MessageRepo
@@ -54,6 +55,11 @@ class Notifier:
                 continue
             try:
                 await self._bot.send_message(owner_chat_id, text)
+                await self._me_repo.mark_notified(event["id"])
+            except TelegramForbiddenError:
+                logger.warning(
+                    "Recipient unavailable for event %d; skipping notification", event["id"]
+                )
                 await self._me_repo.mark_notified(event["id"])
             except Exception:
                 logger.exception("Failed to send notification for event %d", event["id"])

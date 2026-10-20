@@ -351,7 +351,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.9" },
-    { name = "pydantic-settings", specifier = ">=2.7" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "pymorphy3", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25" },

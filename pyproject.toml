@@ -7,7 +7,7 @@ dependencies = [
     "telethon>=1.37",
     "aiogram>=3.16",
     "aiosqlite>=0.20",
-    "pydantic-settings>=2.7",
+    "pydantic-settings>=2.14.2",
     "pymorphy3>=2.0",
 ]
 
